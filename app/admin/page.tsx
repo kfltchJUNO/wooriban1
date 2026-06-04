@@ -1,24 +1,24 @@
 'use client'
-// 📁 app/admin/page.tsx  ← 수정: 교재 관리 탭 추가
+// app/admin/page.tsx
 
 import { useState, useEffect } from 'react'
 import RoleGuard from '@/components/auth/RoleGuard'
 import Header from '@/components/layout/Header'
 import TextbookUpload from '@/components/admin/TextbookUpload'
 import TextbookList from '@/components/admin/TextbookList'
-import { getAllUsers, getPendingUsers, approveUser, updateFreeWritingEnabled } from '@/lib/firestore/users'
+import { getAllUsers, getPendingUsers, approveUser, rejectUser, updateFreeWritingEnabled } from '@/lib/firestore/users'
 import { AppUser } from '@/types/user'
 import { formatSchool, formatSemester, formatClass } from '@/lib/utils/classUtils'
 
 type Tab = 'users' | 'pending' | 'textbooks' | 'settings'
 
 export default function AdminPage() {
-  const [tab, setTab]           = useState<Tab>('users')
-  const [users, setUsers]       = useState<AppUser[]>([])
-  const [pending, setPending]   = useState<AppUser[]>([])
+  const [tab, setTab]             = useState<Tab>('users')
+  const [users, setUsers]         = useState<AppUser[]>([])
+  const [pending, setPending]     = useState<AppUser[]>([])
   const [showUpload, setShowUpload] = useState(false)
   const [tbRefresh, setTbRefresh]   = useState(0)
-  const [toast, setToast]       = useState('')
+  const [toast, setToast]         = useState('')
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500) }
 
@@ -32,6 +32,13 @@ export default function AdminPage() {
   const handleApprove = async (user: AppUser) => {
     await approveUser(user.uid, user.classId, users.filter(u => u.classId === user.classId).length + 1)
     showToast(`${user.nameKr} 승인 완료!`)
+    loadAll()
+  }
+
+  const handleReject = async (user: AppUser) => {
+    if (!confirm(`${user.nameKr} 가입 신청을 거절할까요?`)) return
+    await rejectUser(user.uid)
+    showToast(`${user.nameKr} 거절됨`)
     loadAll()
   }
 
@@ -65,13 +72,13 @@ export default function AdminPage() {
           {/* 통계 */}
           <div className="grid grid-cols-4 gap-3 mb-5">
             {[
-              ['전체 유저',   users.length,                                       'text-indigo-600'],
-              ['가입 대기',   pending.length,                                     'text-amber-500' ],
-              ['활성 학생',   users.filter(u => u.role === 'student' && u.status === 'active').length, 'text-green-600'],
-              ['선생님',      users.filter(u => u.role === 'teacher').length,     'text-blue-600'  ],
+              ['전체 유저',   users.length,                                                          'text-indigo-600'],
+              ['가입 대기',   pending.length,                                                        'text-amber-500' ],
+              ['활성 학생',   users.filter(u => u.role === 'student' && u.status === 'active').length,'text-green-600' ],
+              ['선생님',      users.filter(u => u.role === 'teacher').length,                        'text-blue-600'  ],
             ].map(([label, num, color]) => (
               <div key={label as string} className="bg-white rounded-2xl p-4 text-center shadow-md">
-                <div className={`font-['Syne'] font-black text-3xl ${color}`}>{num}</div>
+                <div className={`text-4xl font-black leading-none mb-1 ${color}`}>{num}</div>
                 <div className="text-xs text-gray-400 mt-1">{label}</div>
               </div>
             ))}
@@ -148,8 +155,13 @@ export default function AdminPage() {
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => handleApprove(user)}
-                      className="bg-green-500 hover:bg-green-600 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors">승인</button>
-                    <button className="bg-red-100 hover:bg-red-200 text-red-700 text-xs font-bold px-4 py-2 rounded-xl transition-colors">거절</button>
+                      className="bg-green-500 hover:bg-green-600 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors">
+                      승인
+                    </button>
+                    <button onClick={() => handleReject(user)}
+                      className="bg-red-100 hover:bg-red-200 text-red-700 text-xs font-bold px-4 py-2 rounded-xl transition-colors">
+                      거절
+                    </button>
                   </div>
                 </div>
               ))}
@@ -159,7 +171,6 @@ export default function AdminPage() {
           {/* ── 교재 관리 탭 ── */}
           {tab === 'textbooks' && (
             <div className="space-y-4">
-              {/* 업로드 버튼 */}
               <div className="bg-white rounded-2xl p-6 shadow-md">
                 <div className="flex items-center justify-between mb-4">
                   <div>
@@ -172,8 +183,6 @@ export default function AdminPage() {
                     {showUpload ? '닫기' : '+ 교재 업로드'}
                   </button>
                 </div>
-
-                {/* 업로드 폼 */}
                 {showUpload && (
                   <div className="border-2 border-dashed border-indigo-200 rounded-2xl p-5 mb-5 bg-indigo-50">
                     <p className="text-sm font-bold text-indigo-700 mb-4">📤 새 교재 업로드</p>
@@ -184,8 +193,6 @@ export default function AdminPage() {
                     }}/>
                   </div>
                 )}
-
-                {/* 교재 목록 */}
                 <TextbookList key={tbRefresh} onRefresh={() => setTbRefresh(n => n + 1)}/>
               </div>
             </div>

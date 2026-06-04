@@ -1,17 +1,13 @@
 // lib/firestore/users.ts
 import {
-  doc, setDoc, updateDoc, getDoc, getDocs,
+  doc, setDoc, updateDoc, getDoc, getDocs, deleteDoc,
   collection, query, where, orderBy, serverTimestamp
 } from 'firebase/firestore'
 import { db } from '@/firebase/firebaseConfig'
 import { AppUser, UserStatus } from '@/types/user'
 
 export async function createUser(uid: string, data: Omit<AppUser, 'uid' | 'createdAt'>) {
-  await setDoc(doc(db, 'users', uid), {
-    ...data,
-    uid,
-    createdAt: serverTimestamp(),
-  })
+  await setDoc(doc(db, 'users', uid), { ...data, uid, createdAt: serverTimestamp() })
 }
 
 export async function getUser(uid: string): Promise<AppUser | null> {
@@ -29,27 +25,22 @@ export async function getUsersByClass(classId: string): Promise<AppUser[]> {
     orderBy('sortOrder', 'asc')
   )
   const snap = await getDocs(q)
-  return snap.docs.map(d => ({
-    ...d.data(),
-    createdAt: d.data().createdAt?.toDate?.() ?? new Date()
-  }) as AppUser)
+  return snap.docs.map(d => ({ ...d.data(), createdAt: d.data().createdAt?.toDate?.() ?? new Date() }) as AppUser)
 }
 
 export async function getPendingUsers(): Promise<AppUser[]> {
   const q = query(collection(db, 'users'), where('status', '==', 'pending'))
   const snap = await getDocs(q)
-  return snap.docs.map(d => ({
-    ...d.data(),
-    createdAt: d.data().createdAt?.toDate?.() ?? new Date()
-  }) as AppUser)
+  return snap.docs.map(d => ({ ...d.data(), createdAt: d.data().createdAt?.toDate?.() ?? new Date() }) as AppUser)
 }
 
 export async function approveUser(uid: string, classId: string, sortOrder: number) {
-  await updateDoc(doc(db, 'users', uid), {
-    status: 'active' as UserStatus,
-    classId,
-    sortOrder
-  })
+  await updateDoc(doc(db, 'users', uid), { status: 'active' as UserStatus, classId, sortOrder })
+}
+
+// 거절: Firestore 문서 삭제
+export async function rejectUser(uid: string) {
+  await deleteDoc(doc(db, 'users', uid))
 }
 
 export async function updateNickname(uid: string, nickname: string) {
@@ -62,8 +53,5 @@ export async function updateFreeWritingEnabled(uid: string, enabled: boolean) {
 
 export async function getAllUsers(): Promise<AppUser[]> {
   const snap = await getDocs(collection(db, 'users'))
-  return snap.docs.map(d => ({
-    ...d.data(),
-    createdAt: d.data().createdAt?.toDate?.() ?? new Date()
-  }) as AppUser)
+  return snap.docs.map(d => ({ ...d.data(), createdAt: d.data().createdAt?.toDate?.() ?? new Date() }) as AppUser)
 }
