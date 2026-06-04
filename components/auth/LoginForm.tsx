@@ -1,4 +1,5 @@
 'use client'
+// components/auth/LoginForm.tsx
 import { useState } from 'react'
 import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth'
 import { useRouter } from 'next/navigation'
@@ -7,13 +8,12 @@ import { getDoc, doc } from 'firebase/firestore'
 import { AppUser } from '@/types/user'
 
 export default function LoginForm() {
-  const [id, setId]   = useState('')
-  const [pw, setPw]   = useState('')
-  const [err, setErr] = useState('')
+  const [id, setId]     = useState('')
+  const [pw, setPw]     = useState('')
+  const [err, setErr]   = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
 
-  // 이메일 로그인: id → id@wooriban.app 형식으로 처리
   const handleEmail = async () => {
     if (!id || !pw) { setErr('아이디와 비밀번호를 입력해주세요'); return }
     setLoading(true); setErr('')
@@ -26,13 +26,11 @@ export default function LoginForm() {
     } finally { setLoading(false) }
   }
 
-  // 구글 로그인
   const handleGoogle = async () => {
     setLoading(true); setErr('')
     try {
       const cred = await signInWithPopup(auth, googleProvider)
       const snap = await getDoc(doc(db, 'users', cred.user.uid))
-      // 최초 구글 로그인 → 추가 정보 입력 페이지
       if (!snap.exists()) { router.push('/register?type=google'); return }
       await redirect(cred.user.uid)
     } catch {
@@ -49,48 +47,66 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="w-full max-w-[420px] bg-white rounded-[20px] shadow-xl p-8">
+    <form
+      onSubmit={e => { e.preventDefault(); handleEmail() }}
+      className="w-full max-w-[420px] bg-white rounded-[20px] shadow-xl p-8"
+    >
+      {/* 로고 */}
       <div className="text-center mb-8">
-        <div className="font-['Syne'] font-extrabold text-4xl text-indigo-600 mb-1">
+        <div className="font-bold text-4xl text-indigo-600 mb-1">
           우리반<span className="text-orange-500">.</span>
         </div>
         <p className="text-gray-400 text-sm">한국어 교실을 더 가깝게 🇰🇷</p>
       </div>
 
+      {/* 입력 필드 */}
       <div className="space-y-4 mb-4">
         <div>
-          <label className="text-xs font-bold text-gray-400 mb-1.5 block">아이디 (영어 소문자)</label>
+          <label className="text-xs font-bold text-gray-400 mb-1.5 block">
+            아이디 (영어 소문자)
+          </label>
           <input
+            type="text"
+            autoComplete="username"
             className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-indigo-500 outline-none transition-colors"
             placeholder="예: kim.minji"
-            value={id} onChange={e => setId(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleEmail()}
+            value={id}
+            onChange={e => setId(e.target.value)}
           />
         </div>
         <div>
-          <label className="text-xs font-bold text-gray-400 mb-1.5 block">비밀번호</label>
+          <label className="text-xs font-bold text-gray-400 mb-1.5 block">
+            비밀번호
+          </label>
           <input
             type="password"
+            autoComplete="current-password"
             className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-indigo-500 outline-none transition-colors"
             placeholder="비밀번호 입력"
-            value={pw} onChange={e => setPw(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleEmail()}
+            value={pw}
+            onChange={e => setPw(e.target.value)}
           />
         </div>
       </div>
 
+      {/* 에러 메시지 */}
       {err && <p className="text-red-500 text-sm mb-3 text-center">{err}</p>}
 
+      {/* 이메일 로그인 버튼 */}
       <button
-        onClick={handleEmail} disabled={loading}
+        type="submit"
+        disabled={loading}
         className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl text-sm transition-all mb-3 disabled:opacity-60"
       >
         {loading ? '로그인 중...' : '로그인'}
       </button>
 
+      {/* 구글 로그인 버튼 */}
       <button
-        onClick={handleGoogle} disabled={loading}
-        className="w-full bg-white border-2 border-gray-200 hover:border-gray-400 text-gray-700 font-bold py-3 rounded-xl text-sm transition-all flex items-center justify-center gap-2"
+        type="button"
+        onClick={handleGoogle}
+        disabled={loading}
+        className="w-full bg-white border-2 border-gray-200 hover:border-gray-400 text-gray-700 font-bold py-3 rounded-xl text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-60"
       >
         <svg width="18" height="18" viewBox="0 0 24 24">
           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -101,16 +117,20 @@ export default function LoginForm() {
         Google로 로그인
       </button>
 
+      {/* 구분선 */}
       <div className="flex items-center gap-3 my-4">
         <div className="flex-1 h-px bg-gray-200"/>
         <span className="text-gray-400 text-xs">또는</span>
         <div className="flex-1 h-px bg-gray-200"/>
       </div>
 
+      {/* 회원가입 링크 */}
       <p className="text-center text-sm text-gray-400">
         계정이 없으신가요?{' '}
-        <a href="/register" className="text-indigo-600 font-bold hover:underline">회원가입</a>
+        <a href="/register" className="text-indigo-600 font-bold hover:underline">
+          회원가입
+        </a>
       </p>
-    </div>
+    </form>
   )
 }
