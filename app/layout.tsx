@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+﻿import type { Metadata } from 'next'
 import { AuthProvider } from '@/lib/auth/authContext'
 import './globals.css'
 
