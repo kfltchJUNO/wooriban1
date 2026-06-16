@@ -31,12 +31,13 @@ export async function getTextbooksByClass(
   )
 }
 
-export async function createTextbook(data: Omit<Textbook, 'id'>) {
-  return addDoc(collection(db, 'textbooks'), {
+export async function createTextbook(data: Omit<Textbook, 'id'>): Promise<string> {
+  const ref = await addDoc(collection(db, 'textbooks'), {
     ...data,
     uploadedAt: serverTimestamp(),
     createdAt:  serverTimestamp(),
   })
+  return ref.id  // ← id 문자열 반환
 }
 
 export async function updateAssignedClasses(id: string, classes: AssignedClass[]) {
