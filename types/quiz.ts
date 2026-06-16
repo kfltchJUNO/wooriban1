@@ -39,7 +39,7 @@ export interface QuizAttempt {
   quizId:         string
   studentUid:     string
   classId:        string
-  answers:        Record<string, number>  // questionId → selectedIndex (사지선다)
+  answers:        Record<string, string>  // questionId → 선택한 답 (기존 호환)
   score:          number
   totalQuestions: number
   completedAt?:   Date
