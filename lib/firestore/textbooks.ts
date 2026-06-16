@@ -1,7 +1,7 @@
 // lib/firestore/textbooks.ts
 import {
   collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc,
-  query, orderBy, serverTimestamp,
+  query, orderBy, where, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '@/firebase/firebaseConfig'
 import { Textbook, TextbookUnit, AssignedClass } from '@/types/textbook'
@@ -16,8 +16,27 @@ export async function getTextbook(id: string): Promise<Textbook | null> {
   return snap.exists() ? ({ id: snap.id, ...snap.data() } as Textbook) : null
 }
 
+// 특정 반에 배정된 교재 목록
+export async function getTextbooksByClass(
+  schoolId: string,
+  semester: string,
+  classId: string
+): Promise<Textbook[]> {
+  const all = await getAllTextbooks()
+  return all.filter(tb =>
+    tb.status === 'ready' &&
+    tb.assignedClasses?.some(
+      ac => ac.schoolId === schoolId && ac.semester === semester && ac.classId === classId
+    )
+  )
+}
+
 export async function createTextbook(data: Omit<Textbook, 'id'>) {
-  return addDoc(collection(db, 'textbooks'), { ...data, createdAt: serverTimestamp() })
+  return addDoc(collection(db, 'textbooks'), {
+    ...data,
+    uploadedAt: serverTimestamp(),
+    createdAt:  serverTimestamp(),
+  })
 }
 
 export async function updateAssignedClasses(id: string, classes: AssignedClass[]) {
@@ -28,16 +47,14 @@ export async function updateTextbookStatus(id: string, status: string, extra?: R
   return updateDoc(doc(db, 'textbooks', id), { status, ...extra })
 }
 
-// ── 교재 삭제 (Firestore 문서 + 하위 units 삭제) ─────────────────
+// 교재 삭제 (Firestore 문서 + 하위 units 삭제)
 export async function deleteTextbook(id: string) {
-  // 하위 units 먼저 삭제
   const unitsSnap = await getDocs(collection(db, 'textbooks', id, 'units'))
   await Promise.all(unitsSnap.docs.map(d => deleteDoc(d.ref)))
-  // 교재 문서 삭제
   await deleteDoc(doc(db, 'textbooks', id))
 }
 
-// ── units ─────────────────────────────────────────────────────────
+// units
 export async function getUnits(textbookId: string): Promise<TextbookUnit[]> {
   const snap = await getDocs(
     query(collection(db, 'textbooks', textbookId, 'units'), orderBy('unitNumber', 'asc'))
