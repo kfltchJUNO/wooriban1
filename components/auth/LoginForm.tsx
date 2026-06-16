@@ -8,21 +8,32 @@ import { getDoc, doc } from 'firebase/firestore'
 import { AppUser } from '@/types/user'
 
 export default function LoginForm() {
-  const [id, setId]     = useState('')
-  const [pw, setPw]     = useState('')
-  const [err, setErr]   = useState('')
+  const [id,      setId]      = useState('')
+  const [pw,      setPw]      = useState('')
+  const [err,     setErr]     = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
 
   const handleEmail = async () => {
-    if (!id || !pw) { setErr('아이디와 비밀번호를 입력해주세요'); return }
+    if (!id || !pw) { setErr('아이디와 비밀번호를 입력해주세요.'); return }
     setLoading(true); setErr('')
     try {
       const email = id.includes('@') ? id : `${id}@wooriban.app`
       const cred  = await signInWithEmailAndPassword(auth, email, pw)
       await redirect(cred.user.uid)
-    } catch {
-      setErr('아이디 또는 비밀번호가 올바르지 않아요')
+    } catch (e: unknown) {
+      const code = (e as { code?: string })?.code ?? ''
+      console.error('[Login Error]', code, e)
+      const MAP: Record<string, string> = {
+        'auth/user-not-found':        '등록되지 않은 계정이에요.',
+        'auth/wrong-password':        '비밀번호가 틀렸어요.',
+        'auth/invalid-credential':    '아이디 또는 비밀번호가 올바르지 않아요.',
+        'auth/invalid-email':         '이메일 형식이 올바르지 않아요.',
+        'auth/operation-not-allowed': '이메일 로그인이 비활성화 상태예요. 관리자에게 문의해주세요.',
+        'auth/too-many-requests':     '시도 횟수가 너무 많아요. 잠시 후 다시 시도해주세요.',
+        'auth/network-request-failed':'네트워크 오류가 발생했어요.',
+      }
+      setErr(MAP[code] ?? `로그인 실패 (${code || '알 수 없는 오류'})`)
     } finally { setLoading(false) }
   }
 
@@ -33,8 +44,10 @@ export default function LoginForm() {
       const snap = await getDoc(doc(db, 'users', cred.user.uid))
       if (!snap.exists()) { router.push('/register?type=google'); return }
       await redirect(cred.user.uid)
-    } catch {
-      setErr('Google 로그인에 실패했어요')
+    } catch (e: unknown) {
+      const code = (e as { code?: string })?.code ?? ''
+      console.error('[Google Login Error]', code, e)
+      setErr(`Google 로그인 실패 (${code || '알 수 없는 오류'})`)
     } finally { setLoading(false) }
   }
 
@@ -56,14 +69,14 @@ export default function LoginForm() {
         <div className="font-bold text-4xl text-indigo-600 mb-1">
           우리반<span className="text-orange-500">.</span>
         </div>
-        <p className="text-gray-400 text-sm">한국어 교실을 더 가깝게 🇰🇷</p>
+        <p className="text-gray-400 text-sm">한국어 학습 플랫폼에 오신 것을 환영해요</p>
       </div>
 
       {/* 입력 필드 */}
       <div className="space-y-4 mb-4">
         <div>
           <label className="text-xs font-bold text-gray-400 mb-1.5 block">
-            아이디 (영어 소문자)
+            아이디 (영문 소문자)
           </label>
           <input
             type="text"
@@ -89,7 +102,7 @@ export default function LoginForm() {
         </div>
       </div>
 
-      {/* 에러 메시지 */}
+      {/* 오류 메시지 */}
       {err && <p className="text-red-500 text-sm mb-3 text-center">{err}</p>}
 
       {/* 이메일 로그인 버튼 */}
