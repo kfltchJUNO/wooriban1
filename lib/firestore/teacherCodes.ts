@@ -78,23 +78,29 @@ export function parseTeacherCode(code: string): {
 } | null {
   if (code.length !== 12) return null
 
-  const schoolCode = code.slice(0, 2)   // DG
-  const year       = '20' + code.slice(2, 4)  // 2026
-  const seasonCode = code.slice(4, 6)   // SU
-  const level      = parseInt(code.slice(6, 8))  // 2
-  const classNum   = parseInt(code.slice(8, 10)) // 10
-  const teacherNo  = parseInt(code.slice(10, 12)) // 1
+  const schoolCode = code.slice(0, 2)
+  const year       = '20' + code.slice(2, 4)
+  const seasonCode = code.slice(4, 6)
+  const levelNum   = parseInt(code.slice(6, 8))
+  const classNum   = parseInt(code.slice(8, 10))
+  const teacherNo  = parseInt(code.slice(10, 12))
 
   if (!SCHOOL_MAP[schoolCode] || !SEASON_MAP[seasonCode]) return null
-  if (isNaN(level) || isNaN(classNum) || isNaN(teacherNo)) return null
+  if (isNaN(levelNum) || isNaN(classNum) || isNaN(teacherNo)) return null
 
-  const schoolId     = SCHOOL_MAP[schoolCode]
-  const schoolLabel  = SCHOOL_LABEL[schoolCode]
-  const seasonKey    = SEASON_MAP[seasonCode]
-  const semester     = `${year.slice(2)}-${seasonKey}`
+  const schoolId    = SCHOOL_MAP[schoolCode]
+  const schoolLabel = SCHOOL_LABEL[schoolCode]
+  const seasonKey   = SEASON_MAP[seasonCode]
+  const semester    = `${year.slice(2)}-${seasonKey}`
   const semesterLabel = `20${code.slice(2,4)}년 ${SEASON_LABEL[seasonCode]}`
-  const classId      = `level${level}-${classNum}`
-  const classLabel   = `${level}급 ${classNum}반`
+
+  // 10=초급, 20=중급, 30=고급, 1~6=N급
+  const LEVEL_LABEL: Record<number, string> = {
+    10: '초급', 20: '중급', 30: '고급',
+  }
+  const levelLabel = LEVEL_LABEL[levelNum] ?? `${levelNum}급`
+  const classId    = `level${levelNum}-${classNum}`
+  const classLabel = `${levelLabel} ${classNum}반`
 
   return { schoolId, schoolLabel, semester, semesterLabel, classId, classLabel, teacherNo }
 }

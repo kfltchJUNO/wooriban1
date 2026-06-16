@@ -92,8 +92,17 @@ export default function TeacherCodeManager() {
           </div>
           <div>
             <label className="text-xs font-bold text-gray-500 block mb-1">급수</label>
-            <input type="number" min={1} max={6} value={level} onChange={e => setLevel(Number(e.target.value))}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-400" />
+            <select value={level} onChange={e => setLevel(Number(e.target.value))}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-400">
+              <optgroup label="초/중/고급">
+                <option value={10}>초급</option>
+                <option value={20}>중급</option>
+                <option value={30}>고급</option>
+              </optgroup>
+              <optgroup label="1~6급">
+                {[1,2,3,4,5,6].map(g => <option key={g} value={g}>{g}급</option>)}
+              </optgroup>
+            </select>
           </div>
           <div>
             <label className="text-xs font-bold text-gray-500 block mb-1">반</label>

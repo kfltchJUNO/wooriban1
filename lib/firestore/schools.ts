@@ -100,10 +100,6 @@ export function formatSemesterId(id: string): string {
 }
 
 export function formatClassId(id: string): string {
-  // "advanced-6"  → "고급 6반"
-  // "intermediate-3" → "중급 3반"
-  // "beginner-1"  → "초급 1반"
-  // "grade2-3"    → "2급 3반"
   const LEVEL: Record<string, string> = {
     advanced:     '고급',
     intermediate: '중급',
@@ -112,11 +108,11 @@ export function formatClassId(id: string): string {
   const parts = id.split('-')
   const num   = parts[1] ?? ''
 
-  // grade{N} 형식
   if (parts[0].startsWith('grade')) {
     const g = parts[0].replace('grade', '')
     return `${g}급 ${num}반`
   }
+  if (parts[0] === 'class') return `${num}반`
 
   const level = LEVEL[parts[0]] ?? parts[0]
   return `${level} ${num}반`

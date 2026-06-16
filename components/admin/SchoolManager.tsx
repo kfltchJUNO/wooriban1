@@ -16,13 +16,18 @@ const SEASONS = [
   { value: 'winter', label: '겨울' },
 ]
 
-const LEVEL_TYPES = [
+const CLASS_TYPES = [
+  { value: '',             label: '구분 없음' },
   { value: 'beginner',     label: '초급' },
   { value: 'intermediate', label: '중급' },
   { value: 'advanced',     label: '고급' },
+  { value: 'grade1',       label: '1급' },
+  { value: 'grade2',       label: '2급' },
+  { value: 'grade3',       label: '3급' },
+  { value: 'grade4',       label: '4급' },
+  { value: 'grade5',       label: '5급' },
+  { value: 'grade6',       label: '6급' },
 ]
-
-const GRADES = [1, 2, 3, 4, 5, 6]  // 1~6급
 
 export default function SchoolManager() {
   const [schools, setSchools] = useState<SchoolData[]>([])
@@ -37,7 +42,7 @@ export default function SchoolManager() {
   const [semesterForms, setSemesterForms] = useState<Record<string, { year: string; season: string }>>({})
 
   // 반 추가
-  const [classForms, setClassForms] = useState<Record<string, { level: string; grade: string; num: string }>>({})
+  const [classForms, setClassForms] = useState<Record<string, { type: string; num: string }>>({})
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500) }
 
@@ -82,11 +87,11 @@ export default function SchoolManager() {
 
   // ── 반 추가 ───────────────────────────────────────────────────
   const handleAddClass = async (schoolId: string, semesterId: string) => {
-    const key  = `${schoolId}-${semesterId}`
-    const form = classForms[key] ?? { level: 'advanced', grade: '', num: '1' }
-    // classId: "advanced-6" 또는 "grade2-3" (급수 있으면 grade{N}-{반번호})
-    const levelPart = form.grade ? `grade${form.grade}` : form.level
-    const classId   = buildClassId(levelPart, parseInt(form.num))
+    const key     = `${schoolId}-${semesterId}`
+    const form    = classForms[key] ?? { type: '', num: '1' }
+    const classId = form.type
+      ? `${form.type}-${form.num}`
+      : `class-${form.num}`
     await addClass(schoolId, semesterId, classId)
     showToast(`${formatClassId(classId)} 반이 추가됐어요!`)
     await load()
@@ -251,65 +256,43 @@ export default function SchoolManager() {
 
                       {/* 반 추가 폼 */}
                       <div className="space-y-2">
-                        <div className="flex gap-2 items-end flex-wrap">
-                          {/* 초/중/고급 선택 */}
+                        <div className="flex gap-2 items-end">
                           <div>
-                            <label className="text-xs font-semibold text-gray-400 block mb-1">구분</label>
+                            <label className="text-xs font-semibold text-gray-400 block mb-1">구분 (선택)</label>
                             <select
-                              value={classForm.level}
-                              onChange={e => setClassForms(p => ({
-                                ...p, [formKey]: { ...p[formKey], level: e.target.value, grade: '' }
-                              }))}
+                              value={classForms[formKey]?.type ?? ''}
+                              onChange={e => setClassForms(p => ({ ...p, [formKey]: { ...p[formKey], type: e.target.value } }))}
                               className="border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-400">
-                              {LEVEL_TYPES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                              {CLASS_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                             </select>
                           </div>
-
-                          {/* 급수 선택 (선택사항) */}
-                          <div>
-                            <label className="text-xs font-semibold text-gray-400 block mb-1">급수 (선택)</label>
-                            <select
-                              value={classForm.grade ?? ''}
-                              onChange={e => setClassForms(p => ({
-                                ...p, [formKey]: { ...p[formKey], grade: e.target.value }
-                              }))}
-                              className="border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-400">
-                              <option value="">급수 없음</option>
-                              {GRADES.map(g => <option key={g} value={String(g)}>{g}급</option>)}
-                            </select>
-                          </div>
-
-                          {/* 반 번호 */}
                           <div>
                             <label className="text-xs font-semibold text-gray-400 block mb-1">반 번호</label>
                             <input
                               type="number" min="1" max="99"
-                              value={classForm.num}
-                              onChange={e => setClassForms(p => ({
-                                ...p, [formKey]: { ...p[formKey], num: e.target.value }
-                              }))}
+                              value={classForms[formKey]?.num ?? '1'}
+                              onChange={e => setClassForms(p => ({ ...p, [formKey]: { ...p[formKey], num: e.target.value } }))}
                               className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-xs text-center focus:outline-none focus:border-indigo-400" />
                           </div>
-
                           <button onClick={() => handleAddClass(school.id, semId)}
                             className="px-3 py-2 bg-green-100 text-green-700 text-xs font-bold rounded-xl hover:bg-green-200 transition-colors whitespace-nowrap">
                             + 반 추가
                           </button>
                         </div>
-
-                        {/* 미리보기 */}
                         <p className="text-[11px] text-gray-400">
-                          생성될 반 ID:{' '}
+                          생성될 ID:{' '}
                           <span className="font-mono text-indigo-600">
-                            {classForm.grade
-                              ? `grade${classForm.grade}-${classForm.num}`
-                              : `${classForm.level || 'advanced'}-${classForm.num}`}
+                            {classForms[formKey]?.type
+                              ? `${classForms[formKey].type}-${classForms[formKey]?.num ?? '1'}`
+                              : `class-${classForms[formKey]?.num ?? '1'}`}
                           </span>
                           {' '}→{' '}
                           <span className="font-semibold text-gray-600">
-                            {classForm.grade
-                              ? `${classForm.grade}급 ${classForm.num}반`
-                              : `${LEVEL_TYPES.find(l => l.value === classForm.level)?.label ?? '고급'} ${classForm.num}반`}
+                            {formatClassId(
+                              classForms[formKey]?.type
+                                ? `${classForms[formKey].type}-${classForms[formKey]?.num ?? '1'}`
+                                : `class-${classForms[formKey]?.num ?? '1'}`
+                            )}
                           </span>
                         </p>
                       </div>
