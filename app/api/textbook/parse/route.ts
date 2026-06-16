@@ -7,6 +7,47 @@ const API_KEYS = [process.env.GEMINI_KEY_1!, process.env.GEMINI_KEY_2].filter(Bo
 let keyIdx = 0
 const getKey = () => { const k = API_KEYS[keyIdx % API_KEYS.length]; keyIdx++; return k }
 
+// 우선순위: 검증된 모델 → RPD 많은 순
+const MODELS = [
+  'gemini-2.5-flash',       // 1순위: 현재 사용 중, 검증됨
+  'gemini-3.1-flash-lite',  // 2순위: RPD 500으로 가장 넉넉
+  'gemini-2.5-flash-lite',  // 3순위: 2.5 경량
+  'gemini-3-flash',         // 4순위
+  'gemini-3.5-flash',       // 5순위
+]
+let modelIdx = 0
+const getModel = () => MODELS[modelIdx % MODELS.length]
+
+async function generateWithRetry(
+  genAI: GoogleGenerativeAI,
+  prompt: string,
+  pdfBase64: string,
+  maxRetries = 5  // 모델 수만큼
+): Promise<string> {
+  for (let i = 0; i < maxRetries; i++) {
+    const currentModel = getModel()
+    try {
+      console.log(`[Gemini] 시도 ${i + 1}/${maxRetries} - 모델: ${currentModel}`)
+      const model  = genAI.getGenerativeModel({ model: currentModel })
+      const result = await model.generateContent([
+        prompt,
+        { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
+      ])
+      console.log(`[Gemini] 성공 - 모델: ${currentModel}`)
+      return result.response.text()
+    } catch (e: unknown) {
+      const status = (e as { status?: number }).status
+      const isRetryable = status === 503 || status === 429 || status === 500
+      console.log(`[Gemini] 실패 - 모델: ${currentModel}, 상태: ${status}`)
+      modelIdx++ // 다음 모델로 전환
+      if (!isRetryable || i === maxRetries - 1) throw e
+      // 재시도 전 대기 (1초, 2초, 4초...)
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)))
+    }
+  }
+  throw new Error('모든 모델 호출 실패')
+}
+
 const TABLE_OF_CONTENTS_PROMPT = `
 이 교재의 목차를 분석해서 모든 과(Unit)의 정보를 JSON으로 추출해줘.
 다른 텍스트 없이 JSON만 응답해:
@@ -89,14 +130,9 @@ export async function POST(req: NextRequest) {
     const base64   = buffer.toString('base64')
 
     const genAI = new GoogleGenerativeAI(getKey())
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     // 1단계: 목차 추출
-    const tocResult = await model.generateContent([
-      TABLE_OF_CONTENTS_PROMPT,
-      { inlineData: { mimeType: 'application/pdf', data: base64 } },
-    ])
-    const tocRaw  = tocResult.response.text()
+    const tocRaw  = await generateWithRetry(genAI, TABLE_OF_CONTENTS_PROMPT, base64)
     const tocText = tocRaw.replace(/```json|```/g, '').trim()
     console.log('TOC raw:', tocRaw.slice(0, 200))
 
@@ -117,11 +153,7 @@ export async function POST(req: NextRequest) {
     const savedUnitIds: string[] = []
     for (const unit of units) {
       try {
-        const unitResult = await model.generateContent([
-          buildUnitPrompt(unit.unitNumber, unit.title),
-          { inlineData: { mimeType: 'application/pdf', data: base64 } },
-        ])
-        const unitRaw  = unitResult.response.text()
+        const unitRaw  = await generateWithRetry(genAI, buildUnitPrompt(unit.unitNumber, unit.title), base64)
         const unitText = unitRaw.replace(/```json|```/g, '').trim()
 
         let unitData: Record<string, unknown> = {}
