@@ -1,7 +1,7 @@
 'use client'
 // components/auth/RegisterForm.tsx
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth'
 import { useRouter } from 'next/navigation'
 import { auth } from '@/firebase/firebaseConfig'
@@ -9,6 +9,7 @@ import { createUser } from '@/lib/firestore/users'
 import { verifyRosterEntry, linkRosterToUid } from '@/lib/firestore/roster'
 import { validateTeacherCode, useTeacherCode } from '@/lib/firestore/teacherCodes'
 import { hashStudentId } from '@/lib/crypto'
+import { getAllSchools, formatSemesterId, formatClassId, type SchoolData } from '@/lib/firestore/schools'
 
 type Mode = 'select' | 'student' | 'teacher'
 type Step = 1 | 2
@@ -123,12 +124,53 @@ function StudentRegister({ onBack, router }: { onBack: () => void; router: Retur
   const [step,     setStep]     = useState<Step>(1)
   const [nameEn,   setNameEn]   = useState('')
   const [studentId,setStudentId]= useState('')
-  const [school,   setSchool]   = useState('dankook')
-  const [semester, setSemester] = useState('26-summer')
-  const [classId,  setClassId]  = useState('advanced-6')
+  const [school,   setSchool]   = useState('')
+  const [semester, setSemester] = useState('')
+  const [classId,  setClassId]  = useState('')
   const [roster,   setRoster]   = useState<{ id: string; nickname?: string; nameKr?: string } | null>(null)
   const [err,      setErr]      = useState('')
   const [loading,  setLoading]  = useState(false)
+
+  // 학교 목록 동적 로드
+  const [schools,   setSchools]   = useState<SchoolData[]>([])
+  const [semesters, setSemesters] = useState<string[]>([])
+  const [classes,   setClasses]   = useState<string[]>([])
+
+  useEffect(() => {
+    getAllSchools().then(list => {
+      setSchools(list)
+      if (list.length > 0) {
+        setSchool(list[0].id)
+        const sems = list[0].semesters
+        setSemesters(sems)
+        if (sems.length > 0) {
+          setSemester(sems[0])
+          const cls = list[0].classes[sems[0]] ?? []
+          setClasses(cls)
+          if (cls.length > 0) setClassId(cls[0])
+        }
+      }
+    })
+  }, [])
+
+  const handleSchoolChange = (schoolId: string) => {
+    setSchool(schoolId)
+    const s = schools.find(s => s.id === schoolId)
+    const sems = s?.semesters ?? []
+    setSemesters(sems)
+    setSemester(sems[0] ?? '')
+    const cls = s?.classes[sems[0]] ?? []
+    setClasses(cls)
+    setClassId(cls[0] ?? '')
+  }
+
+  const handleSemesterChange = (semId: string) => {
+    setSemester(semId)
+    const s = schools.find(s => s.id === school)
+    const cls = s?.classes[semId] ?? []
+    setClasses(cls)
+    setClassId(cls[0] ?? '')
+  }
 
   const handleVerify = async () => {
     if (!nameEn.trim() || !studentId.trim()) { setErr('여권 영문명과 학번을 모두 입력해주세요.'); return }
@@ -187,19 +229,27 @@ function StudentRegister({ onBack, router }: { onBack: () => void; router: Retur
       {step === 1 && (
         <>
           <div className="grid grid-cols-3 gap-2">
-            {[
-              { label: '학교', value: school, onChange: setSchool, options: [['dankook','단국대'],['dongguk','동국대']] },
-              { label: '학기', value: semester, onChange: setSemester, options: [['26-summer','26년 여름'],['26-spring','26년 봄']] },
-              { label: '반',   value: classId,  onChange: setClassId,  options: [['advanced-6','고급 6반'],['advanced-5','고급 5반']] },
-            ].map(({ label, value, onChange, options }) => (
-              <div key={label}>
-                <label className="text-xs font-semibold text-gray-400 block mb-1">{label}</label>
-                <select value={value} onChange={e => onChange(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-2 py-2 text-xs focus:outline-none focus:border-indigo-400">
-                  {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </div>
-            ))}
+            <div>
+              <label className="text-xs font-semibold text-gray-400 block mb-1">학교</label>
+              <select value={school} onChange={e => handleSchoolChange(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-2 py-2 text-xs focus:outline-none focus:border-indigo-400">
+                {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-400 block mb-1">학기</label>
+              <select value={semester} onChange={e => handleSemesterChange(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-2 py-2 text-xs focus:outline-none focus:border-indigo-400">
+                {semesters.map(s => <option key={s} value={s}>{formatSemesterId(s)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-400 block mb-1">반</label>
+              <select value={classId} onChange={e => setClassId(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-2 py-2 text-xs focus:outline-none focus:border-indigo-400">
+                {classes.map(c => <option key={c} value={c}>{formatClassId(c)}</option>)}
+              </select>
+            </div>
           </div>
 
           <div>

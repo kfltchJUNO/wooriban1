@@ -6,13 +6,15 @@ import RoleGuard from '@/components/auth/RoleGuard'
 import Header from '@/components/layout/Header'
 import TextbookUpload from '@/components/admin/TextbookUpload'
 import TextbookList from '@/components/admin/TextbookList'
+import TeacherCodeManager from '@/components/admin/TeacherCodeManager'
+import SchoolManager from '@/components/admin/SchoolManager'
 import { getAllUsers, getPendingUsers, approveUser, rejectUser, deleteUser, updateFreeWritingEnabled } from '@/lib/firestore/users'
 import { deleteTextbook } from '@/lib/firestore/textbooks'
 import { AppUser } from '@/types/user'
 import { Textbook } from '@/types/textbook'
 import { formatSchool, formatSemester, formatClass } from '@/lib/utils/classUtils'
 
-type Tab = 'users' | 'pending' | 'textbooks' | 'settings'
+type Tab = 'users' | 'pending' | 'textbooks' | 'teacherCodes' | 'schools'
 
 export default function AdminPage() {
   const [tab, setTab]               = useState<Tab>('users')
@@ -72,10 +74,11 @@ export default function AdminPage() {
   }
 
   const TABS: { key: Tab; label: string; badge?: number }[] = [
-    { key: 'users',     label: '전체 유저 목록' },
-    { key: 'pending',   label: '가입 대기', badge: pending.length },
-    { key: 'textbooks', label: '교재 관리 목록' },
-    { key: 'settings',  label: '클래스 및 설정'  },
+    { key: 'users',        label: '전체 유저 목록' },
+    { key: 'pending',      label: '가입 대기', badge: pending.length },
+    { key: 'textbooks',    label: '교재 관리' },
+    { key: 'teacherCodes', label: '선생님 코드' },
+    { key: 'schools',      label: '학교/반 관리' },
   ]
 
   return (
@@ -243,27 +246,17 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* 설정 */}
-          {tab === 'settings' && (
-            <div className="bg-white rounded-2xl p-6 shadow-md space-y-4">
-              <div className="border border-gray-100 rounded-2xl p-4">
-                <div className="font-bold text-sm mb-3">현재 활성 클래스</div>
-                <div className="flex gap-2 flex-wrap">
-                  <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-3 py-1.5 rounded-full">26-여름 · 고급6반</span>
-                  <button onClick={() => showToast('반 추가 기능 준비 중이에요')}
-                    className="border-2 border-indigo-200 text-indigo-600 text-xs font-bold px-3 py-1 rounded-full hover:bg-indigo-50 transition-colors">
-                    + 반 추가
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-400 mb-2 block">자유 작문 기능 (전체)</label>
-                <label className="flex items-center gap-3 p-4 border border-gray-100 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input type="checkbox" defaultChecked className="w-4 h-4 accent-indigo-600 cursor-pointer"
-                    onChange={() => showToast('전체 자유작문 설정이 변경됐어요!')}/>
-                  <span className="text-sm">학생 자유 작문 기능 활성화</span>
-                </label>
-              </div>
+          {/* 선생님 코드 관리 */}
+          {tab === 'teacherCodes' && (
+            <div className="bg-white rounded-2xl p-6 shadow-md">
+              <TeacherCodeManager />
+            </div>
+          )}
+
+          {/* 학교/반 관리 */}
+          {tab === 'schools' && (
+            <div className="bg-white rounded-2xl p-6 shadow-md">
+              <SchoolManager />
             </div>
           )}
         </main>
