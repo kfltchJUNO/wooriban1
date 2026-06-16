@@ -1,4 +1,4 @@
-// 📁 firebase/firebaseAdmin.ts  ← 수정: Storage 추가
+// 📁 firebase/firebaseAdmin.ts
 
 import admin from 'firebase-admin'
 
@@ -9,7 +9,8 @@ if (!admin.apps.length) {
       clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL!,
       privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
     }),
-    storageBucket: `${process.env.FIREBASE_ADMIN_PROJECT_ID}.appspot.com`,
+    // ← .appspot.com → .firebasestorage.app 으로 변경
+    storageBucket: `${process.env.FIREBASE_ADMIN_PROJECT_ID}.firebasestorage.app`,
   })
 }
 
