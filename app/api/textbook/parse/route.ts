@@ -1,6 +1,4 @@
 // 📁 app/api/textbook/parse/route.ts
-// 관리자가 PDF 업로드 후 호출 → Gemini로 파싱 → Firestore 저장
-
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { adminDb, adminStorage } from '@/firebase/firebaseAdmin'
@@ -8,8 +6,6 @@ import { adminDb, adminStorage } from '@/firebase/firebaseAdmin'
 const API_KEYS = [process.env.GEMINI_KEY_1!, process.env.GEMINI_KEY_2].filter(Boolean) as string[]
 let keyIdx = 0
 const getKey = () => { const k = API_KEYS[keyIdx % API_KEYS.length]; keyIdx++; return k }
-
-// ── 프롬프트 ──────────────────────────────────
 
 const TABLE_OF_CONTENTS_PROMPT = `
 이 교재의 목차를 분석해서 모든 과(Unit)의 정보를 JSON으로 추출해줘.
@@ -31,33 +27,64 @@ function buildUnitPrompt(unitNumber: number, unitTitle: string) {
     { "word": "지치다", "meaning": "몸이나 마음이 너무 힘들어 기운이 없어지다", "example": "요즘 일이 너무 많아서 완전히 지쳤어요.", "type": "동사" }
   ],
   "grammar": [
-    { "pattern": "V-느니", "explanation": "앞의 행동보다 뒤의 선택이 낫다는 의미. 불만·체념 포함.", "examples": ["기다리느니 차라리 내가 하는 게 낫겠다.", "이렇게 고민하느니 그냥 물어보자."], "notes": "동사 어간 + 느니. 형용사 불가." }
+    { "pattern": "V-느니", "explanation": "앞의 행동보다 뒤의 선택이 낫다는 의미.", "examples": ["기다리느니 차라리 내가 하는 게 낫겠다."], "notes": "동사 어간 + 느니." }
   ],
   "idioms": [
     { "expression": "눈코 뜰 사이 없다", "meaning": "너무 바빠서 잠시도 여유가 없다", "example": "시험 기간이라 눈코 뜰 사이 없이 바빠요." }
   ],
-  "readingTopics": ["워크라이프밸런스", "세대별 직장 인식"],
-  "listeningPoints": ["오티움의 정의", "오티움의 특징"],
+  "readingTopics": ["워크라이프밸런스"],
+  "listeningPoints": ["오티움의 정의"],
   "writingTheme": "여유가 있는 삶"
 }
 `.trim()
 }
 
-// ── 핸들러 ────────────────────────────────────
+// Storage 경로 추출 헬퍼
+// "https://firebasestorage.googleapis.com/v0/b/xxx/o/textbooks%2Ffile.pdf?..." → "textbooks/file.pdf"
+function extractStoragePath(storageUrl: string): string {
+  try {
+    // 이미 순수 경로면 그대로 반환
+    if (!storageUrl.startsWith('http')) return storageUrl
+
+    const url = new URL(storageUrl)
+    // /v0/b/{bucket}/o/{path} 형식
+    const match = url.pathname.match(/\/v0\/b\/[^/]+\/o\/(.+)/)
+    if (match) return decodeURIComponent(match[1])
+
+    // gs:// 형식
+    if (storageUrl.startsWith('gs://')) {
+      return storageUrl.split('/').slice(3).join('/')
+    }
+
+    return storageUrl
+  } catch {
+    return storageUrl
+  }
+}
 
 export async function POST(req: NextRequest) {
+  // body를 먼저 변수에 저장 (두 번 읽기 방지)
+  let textbookId = ''
+  let storageUrl = ''
+
   try {
-    const { textbookId, storageUrl } = await req.json()
+    const body = await req.json()
+    textbookId = body.textbookId
+    storageUrl = body.storageUrl
+
     if (!textbookId || !storageUrl) {
       return NextResponse.json({ error: '필수 항목 누락' }, { status: 400 })
     }
 
-    // 파싱 시작 상태 업데이트
+    // 파싱 시작 상태
     await adminDb.collection('textbooks').doc(textbookId).update({ status: 'parsing' })
 
-    // Firebase Storage에서 PDF 파일 다운로드
+    // Storage 경로 추출 후 파일 다운로드
+    const storagePath = extractStoragePath(storageUrl)
+    console.log('Storage path:', storagePath)
+
     const bucket = adminStorage.bucket()
-    const file   = bucket.file(storageUrl)
+    const file   = bucket.file(storagePath)
     const [buffer] = await file.download()
     const base64   = buffer.toString('base64')
 
@@ -69,10 +96,24 @@ export async function POST(req: NextRequest) {
       TABLE_OF_CONTENTS_PROMPT,
       { inlineData: { mimeType: 'application/pdf', data: base64 } },
     ])
-    const tocText = tocResult.response.text().replace(/```json|```/g, '').trim()
-    const { units } = JSON.parse(tocText) as { units: { unitNumber: number; title: string }[] }
+    const tocRaw  = tocResult.response.text()
+    const tocText = tocRaw.replace(/```json|```/g, '').trim()
+    console.log('TOC raw:', tocRaw.slice(0, 200))
 
-    // 2단계: 과별 내용 추출 (순차 처리)
+    let units: { unitNumber: number; title: string }[] = []
+    try {
+      const parsed = JSON.parse(tocText)
+      units = parsed.units ?? []
+    } catch (e) {
+      console.error('TOC JSON 파싱 실패:', tocText.slice(0, 300))
+      throw new Error('목차 파싱 실패: Gemini 응답이 JSON 형식이 아닙니다')
+    }
+
+    if (!units.length) {
+      throw new Error('목차에서 과(Unit)를 찾을 수 없습니다')
+    }
+
+    // 2단계: 과별 내용 추출
     const savedUnitIds: string[] = []
     for (const unit of units) {
       try {
@@ -80,8 +121,17 @@ export async function POST(req: NextRequest) {
           buildUnitPrompt(unit.unitNumber, unit.title),
           { inlineData: { mimeType: 'application/pdf', data: base64 } },
         ])
-        const unitText   = unitResult.response.text().replace(/```json|```/g, '').trim()
-        const unitData   = JSON.parse(unitText)
+        const unitRaw  = unitResult.response.text()
+        const unitText = unitRaw.replace(/```json|```/g, '').trim()
+
+        let unitData: Record<string, unknown> = {}
+        try {
+          unitData = JSON.parse(unitText)
+        } catch (e) {
+          console.error(`Unit ${unit.unitNumber} JSON 파싱 실패:`, unitText.slice(0, 200))
+          // 단위 파싱 실패는 skip하고 계속
+          continue
+        }
 
         const ref = await adminDb
           .collection('textbooks').doc(textbookId)
@@ -100,29 +150,28 @@ export async function POST(req: NextRequest) {
           })
         savedUnitIds.push(ref.id)
 
-        // API 과부하 방지
         await new Promise(r => setTimeout(r, 800))
       } catch (e) {
         console.error(`Unit ${unit.unitNumber} 파싱 실패:`, e)
       }
     }
 
-    // 완료 상태 업데이트
+    // 완료
     await adminDb.collection('textbooks').doc(textbookId).update({
       status:    'ready',
       unitCount: savedUnitIds.length,
     })
 
     return NextResponse.json({ success: true, unitCount: savedUnitIds.length })
+
   } catch (e) {
     console.error('Parse error:', e)
-    // 에러 상태 기록
-    if (req.body) {
-      const { textbookId } = await req.json().catch(() => ({}))
-      if (textbookId) {
-        await adminDb.collection('textbooks').doc(textbookId).update({ status: 'error' }).catch(() => {})
-      }
+    // textbookId가 있으면 에러 상태 기록
+    if (textbookId) {
+      await adminDb.collection('textbooks').doc(textbookId)
+        .update({ status: 'error', errorMessage: String(e) })
+        .catch(() => {})
     }
-    return NextResponse.json({ error: '파싱 실패' }, { status: 500 })
+    return NextResponse.json({ error: '파싱 실패', detail: String(e) }, { status: 500 })
   }
 }
