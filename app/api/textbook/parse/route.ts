@@ -22,26 +22,41 @@ async function generateWithRetry(
   genAI: GoogleGenerativeAI,
   prompt: string,
   pdfBase64: string,
-  maxRetries = 5  // 모델 수만큼
+  maxRetries = 5
 ): Promise<string> {
   for (let i = 0; i < maxRetries; i++) {
     const currentModel = getModel()
     try {
       console.log(`[Gemini] 시도 ${i + 1}/${maxRetries} - 모델: ${currentModel}`)
-      const model  = genAI.getGenerativeModel({ model: currentModel })
+      const model  = genAI.getGenerativeModel({
+        model: currentModel,
+        generationConfig: {
+          maxOutputTokens: 8192,      // 응답 잘림 방지
+          temperature:     0.1,       // 일관성 높임
+        },
+      })
       const result = await model.generateContent([
         prompt,
         { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
       ])
+      const text = result.response.text()
+      // JSON 잘림 감지: 마지막 문자가 } 또는 ] 가 아니면 재시도
+      const trimmed = text.replace(/```json|```/g, '').trim()
+      if (!trimmed.endsWith('}') && !trimmed.endsWith(']')) {
+        console.log(`[Gemini] 응답 잘림 감지 - 모델: ${currentModel}, 재시도`)
+        modelIdx++
+        if (i === maxRetries - 1) throw new Error('응답이 계속 잘려요')
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)))
+        continue
+      }
       console.log(`[Gemini] 성공 - 모델: ${currentModel}`)
-      return result.response.text()
+      return text
     } catch (e: unknown) {
       const status = (e as { status?: number }).status
       const isRetryable = status === 503 || status === 429 || status === 500
       console.log(`[Gemini] 실패 - 모델: ${currentModel}, 상태: ${status}`)
-      modelIdx++ // 다음 모델로 전환
+      modelIdx++
       if (!isRetryable || i === maxRetries - 1) throw e
-      // 재시도 전 대기 (1초, 2초, 4초...)
       await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)))
     }
   }
