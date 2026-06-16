@@ -43,6 +43,11 @@ export async function rejectUser(uid: string) {
   await deleteDoc(doc(db, 'users', uid))
 }
 
+// ── 학생 삭제 (관리자) ────────────────────────────────────────────
+export async function deleteUser(uid: string) {
+  await deleteDoc(doc(db, 'users', uid))
+}
+
 export async function updateNickname(uid: string, nickname: string) {
   await updateDoc(doc(db, 'users', uid), { nickname })
 }
