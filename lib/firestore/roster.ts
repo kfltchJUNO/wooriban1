@@ -1,5 +1,5 @@
 import {
-  collection, doc, getDocs, addDoc, updateDoc,
+  collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
   query, where, serverTimestamp, writeBatch,
   type Timestamp,
 } from "firebase/firestore";
@@ -7,20 +7,18 @@ import { db } from "@/firebase/firebaseConfig";
 
 // ── 타입 ──────────────────────────────────────────────────────────
 export interface RosterEntry {
-  id:        string;
-  nameKr:    string;   // 출석부 이름
-  nickname:  string;   // 부르는 이름 (선생님 설정)
-  studentId: string;   // 학번 (검증 키)
-  schoolId:  string;
-  semester:  string;
-  classId:   string;
-  status:    "unregistered" | "registered";
-  uid:       string | null;  // 가입 후 연결
-  createdAt: Timestamp | null;
+  id:            string;
+  nameEn:        string;   // 여권 영문명 (대문자, 검증 키)
+  nameKr:        string;   // 한글명
+  nickname:      string;   // 부르는 이름 (선생님 설정, 미설정시 nameKr)
+  studentIdHash: string;   // 학번 SHA-256 해시 (원본 저장 안 함)
+  schoolId:      string;
+  semester:      string;
+  classId:       string;
+  status:        "unregistered" | "registered";
+  uid:           string | null;
+  createdAt:     Timestamp | null;
 }
-
-const COL = (db: ReturnType<typeof import("firebase/firestore").getFirestore>) =>
-  collection(db, "roster");
 
 // ── 출석부 전체 조회 (선생님용) ──────────────────────────────────
 export async function getRoster(
@@ -30,9 +28,9 @@ export async function getRoster(
 ): Promise<RosterEntry[]> {
   const q = query(
     collection(db, "roster"),
-    where("schoolId",  "==", schoolId),
-    where("semester",  "==", semester),
-    where("classId",   "==", classId),
+    where("schoolId", "==", schoolId),
+    where("semester", "==", semester),
+    where("classId",  "==", classId),
   );
   const snap = await getDocs(q);
   return snap.docs.map(d => ({ id: d.id, ...d.data() } as RosterEntry));
@@ -53,12 +51,12 @@ export async function addRosterEntry(
 // ── 학생 정보 수정 (선생님) ──────────────────────────────────────
 export async function updateRosterEntry(
   id: string,
-  data: Partial<Pick<RosterEntry, "nameKr" | "nickname" | "studentId">>
+  data: Partial<Pick<RosterEntry, "nameEn" | "nameKr" | "nickname" | "studentIdHash">>
 ) {
   return updateDoc(doc(db, "roster", id), data);
 }
 
-// ── 일괄 등록 (선생님 — 붙여넣기 방식) ──────────────────────────
+// ── 일괄 등록 ────────────────────────────────────────────────────
 export async function addRosterBulk(
   entries: Omit<RosterEntry, "id" | "createdAt" | "status" | "uid">[]
 ) {
@@ -75,26 +73,26 @@ export async function addRosterBulk(
   return batch.commit();
 }
 
-// ── 가입 검증: 이름 + 학번 일치 여부 확인 ───────────────────────
+// ── 가입 검증: 여권 영문명 + 학번 해시 ───────────────────────────
 export async function verifyRosterEntry(
-  schoolId:  string,
-  semester:  string,
-  classId:   string,
-  nameKr:    string,
-  studentId: string,
+  schoolId:      string,
+  semester:      string,
+  classId:       string,
+  nameEn:        string,   // 대문자 여권 영문명
+  studentIdHash: string,   // 학번 해시
 ): Promise<{ valid: boolean; entry?: RosterEntry; error?: string }> {
   const q = query(
     collection(db, "roster"),
-    where("schoolId",  "==", schoolId),
-    where("semester",  "==", semester),
-    where("classId",   "==", classId),
-    where("nameKr",    "==", nameKr.trim()),
-    where("studentId", "==", studentId.trim()),
+    where("schoolId",      "==", schoolId),
+    where("semester",      "==", semester),
+    where("classId",       "==", classId),
+    where("nameEn",        "==", nameEn),
+    where("studentIdHash", "==", studentIdHash),
   );
   const snap = await getDocs(q);
 
   if (snap.empty) {
-    return { valid: false, error: "출석부에 등록된 이름과 학번이 일치하지 않아요." };
+    return { valid: false, error: "출석부에 등록된 여권 영문명과 학번이 일치하지 않아요." };
   }
 
   const entry = { id: snap.docs[0].id, ...snap.docs[0].data() } as RosterEntry;
@@ -106,7 +104,7 @@ export async function verifyRosterEntry(
   return { valid: true, entry };
 }
 
-// ── 가입 완료 시 roster uid 연결 ─────────────────────────────────
+// ── 가입 완료 시 uid 연결 ─────────────────────────────────────────
 export async function linkRosterToUid(rosterId: string, uid: string) {
   return updateDoc(doc(db, "roster", rosterId), {
     status: "registered",
@@ -114,8 +112,7 @@ export async function linkRosterToUid(rosterId: string, uid: string) {
   });
 }
 
-// ── 삭제 (선생님) ────────────────────────────────────────────────
+// ── 삭제 ────────────────────────────────────────────────────────
 export async function deleteRosterEntry(id: string) {
-  const { deleteDoc } = await import("firebase/firestore");
   return deleteDoc(doc(db, "roster", id));
 }
