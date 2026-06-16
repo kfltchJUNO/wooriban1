@@ -61,20 +61,44 @@ const TABLE_OF_CONTENTS_PROMPT = `
 
 function buildUnitPrompt(unitNumber: number, unitTitle: string) {
   return `
-이 교재의 ${unitNumber}과 "${unitTitle}" 내용에서 다음을 JSON으로 추출해줘.
+이 PDF 교재의 ${unitNumber}과 "${unitTitle}"에서 학습 항목을 빠짐없이 모두 추출해줘.
+교재에 나오는 모든 어휘, 문법, 관용표현을 누락 없이 추출하는 것이 중요해.
+
+규칙:
+- 어휘(vocabulary): 해당 과의 학습 어휘 목록 전체. 최소 10개 이상 추출.
+- 문법(grammar): 해당 과에서 다루는 문법 패턴 전체. 예문은 2개 이상.
+- 관용어/속담(idioms): 관용표현, 속담, 사자성어 등 모두 포함. 있으면 전부 추출.
+
 다른 텍스트 없이 JSON만 응답해:
 {
   "vocabulary": [
-    { "word": "지치다", "meaning": "몸이나 마음이 너무 힘들어 기운이 없어지다", "example": "요즘 일이 너무 많아서 완전히 지쳤어요.", "type": "동사" }
+    {
+      "word": "지치다",
+      "meaning": "몸이나 마음이 너무 힘들어 기운이 없어지다",
+      "example": "요즘 일이 너무 많아서 완전히 지쳤어요.",
+      "type": "동사"
+    }
   ],
   "grammar": [
-    { "pattern": "V-느니", "explanation": "앞의 행동보다 뒤의 선택이 낫다는 의미.", "examples": ["기다리느니 차라리 내가 하는 게 낫겠다."], "notes": "동사 어간 + 느니." }
+    {
+      "pattern": "V-느니",
+      "explanation": "앞의 행동보다 뒤의 선택이 낫다는 의미. 불만·체념 포함.",
+      "examples": [
+        "기다리느니 차라리 내가 하는 게 낫겠다.",
+        "이렇게 고민하느니 그냥 물어보자."
+      ],
+      "notes": "동사 어간 + 느니. 형용사 불가."
+    }
   ],
   "idioms": [
-    { "expression": "눈코 뜰 사이 없다", "meaning": "너무 바빠서 잠시도 여유가 없다", "example": "시험 기간이라 눈코 뜰 사이 없이 바빠요." }
+    {
+      "expression": "눈코 뜰 사이 없다",
+      "meaning": "너무 바빠서 잠시도 여유가 없다",
+      "example": "시험 기간이라 눈코 뜰 사이 없이 바빠요."
+    }
   ],
-  "readingTopics": ["워크라이프밸런스"],
-  "listeningPoints": ["오티움의 정의"],
+  "readingTopics": ["워크라이프밸런스", "세대별 직장 인식"],
+  "listeningPoints": ["오티움의 정의", "오티움의 특징"],
   "writingTheme": "여유가 있는 삶"
 }
 `.trim()
