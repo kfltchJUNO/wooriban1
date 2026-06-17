@@ -68,9 +68,14 @@ export default function AdminPage() {
   }
 
   const ROLE_BADGE: Record<string, string> = {
-    admin:   'bg-indigo-100 text-indigo-800',
+    admin:   'bg-red-100 text-red-800',
     teacher: 'bg-blue-100 text-blue-800',
     student: 'bg-gray-100 text-gray-600',
+  }
+  const ROLE_LABEL: Record<string, string> = {
+    admin:   '관리자',
+    teacher: '선생님',
+    student: '학생',
   }
 
   const TABS: { key: Tab; label: string; badge?: number }[] = [
@@ -144,7 +149,9 @@ export default function AdminPage() {
                       <td className="py-3 px-3 font-bold">{user.nameKr}</td>
                       <td className="py-3 px-3 text-gray-400 text-xs">{user.email.replace('@wooriban.app', '')}</td>
                       <td className="py-3 px-3">
-                        <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${ROLE_BADGE[user.role]}`}>{user.role}</span>
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${ROLE_BADGE[user.role]}`}>
+                          {ROLE_LABEL[user.role] ?? user.role}
+                        </span>
                       </td>
                       <td className="py-3 px-3 text-xs text-gray-400">
                         {formatSchool(user.schoolId)} · {formatSemester(user.semester)} · {formatClass(user.classId)}

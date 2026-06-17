@@ -1,5 +1,5 @@
 'use client'
-// 📁 app/teacher/page.tsx  ← 수정: 퀴즈 생성 + 오류 패턴 분석 추가
+// app/teacher/page.tsx
 
 import { useState, useEffect } from 'react'
 import RoleGuard from '@/components/auth/RoleGuard'
@@ -11,6 +11,7 @@ import AssignmentModal from '@/components/teacher/AssignmentModal'
 import QuizGenerator from '@/components/teacher/QuizGenerator'
 import QuizList from '@/components/teacher/QuizList'
 import ErrorPatternViewer from '@/components/teacher/ErrorPatternViewer'
+import RosterManager from '@/components/teacher/RosterManager'
 import { useAuth } from '@/lib/auth/authContext'
 import { getUsersByClass } from '@/lib/firestore/users'
 import { getSubmissionsByClass } from '@/lib/firestore/submissions'
@@ -20,19 +21,19 @@ import { Submission } from '@/types/assignment'
 import { Feedback } from '@/types/feedback'
 import { formatSchool, formatSemester, formatClass } from '@/lib/utils/classUtils'
 
-type Panel = 'main' | 'quizzes'
+type Panel = 'main' | 'quizzes' | 'roster'
 
 export default function TeacherPage() {
-  const { appUser }             = useAuth()
-  const [students, setStudents] = useState<AppUser[]>([])
-  const [submissions, setSubmissions] = useState<Submission[]>([])
-  const [reviewing, setReviewing]     = useState<{ student: AppUser; sub: Submission; feedback: Feedback | null } | null>(null)
-  const [showAssign, setShowAssign]   = useState(false)
-  const [showQuizGen, setShowQuizGen] = useState(false)
+  const { appUser }                   = useAuth()
+  const [students,     setStudents]   = useState<AppUser[]>([])
+  const [submissions,  setSubmissions]= useState<Submission[]>([])
+  const [reviewing,    setReviewing]  = useState<{ student: AppUser; sub: Submission; feedback: Feedback | null } | null>(null)
+  const [showAssign,   setShowAssign] = useState(false)
+  const [showQuizGen,  setShowQuizGen]= useState(false)
   const [showErrorPattern, setShowErrorPattern] = useState(false)
-  const [panel, setPanel]             = useState<Panel>('main')
-  const [quizRefresh, setQuizRefresh] = useState(0)
-  const [toast, setToast]             = useState('')
+  const [panel,        setPanel]      = useState<Panel>('main')
+  const [quizRefresh,  setQuizRefresh]= useState(0)
+  const [toast,        setToast]      = useState('')
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500) }
 
@@ -57,13 +58,19 @@ export default function TeacherPage() {
 
   const pendingReview = submissions.filter(s => s.status === 'ai_done').length
 
+  const PANELS: { key: Panel; label: string }[] = [
+    { key: 'main',    label: '📋 학생 현황' },
+    { key: 'quizzes', label: '🎯 퀴즈 목록' },
+    { key: 'roster',  label: '👥 출석부 관리' },
+  ]
+
   return (
     <RoleGuard allowedRoles={['teacher', 'admin']}>
       <div className="min-h-screen bg-[#F5F5FF]">
-        <Header/>
+        <Header />
         <main className="max-w-[960px] mx-auto px-5 py-5">
 
-          {/* 반 정보 바 */}
+          {/* 반 정보 배너 */}
           <div className="bg-gradient-to-r from-[#1E1B4B] to-indigo-700 text-white rounded-2xl px-6 py-5 mb-5">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
@@ -79,11 +86,12 @@ export default function TeacherPage() {
                   )}
                 </div>
               </div>
-              {/* 액션 버튼 묶음 */}
+
+              {/* 액션 버튼 */}
               <div className="flex gap-2 flex-wrap">
                 <button onClick={() => setShowAssign(true)}
                   className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition-colors">
-                  📋 과제 부여
+                  📝 숙제 출제
                 </button>
                 <button onClick={() => setShowQuizGen(true)}
                   className="bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition-colors">
@@ -99,52 +107,63 @@ export default function TeacherPage() {
 
           {/* 패널 탭 */}
           <div className="flex gap-1 bg-indigo-100 p-1 rounded-xl mb-5 w-fit">
-            {(['main', 'quizzes'] as Panel[]).map(p => (
-              <button key={p} onClick={() => setPanel(p)}
-                className={`px-5 py-2 text-sm font-bold rounded-lg transition-all
-                  ${panel === p ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                {p === 'main' ? '📋 학생 현황' : '🎯 퀴즈 관리'}
+            {PANELS.map(p => (
+              <button key={p.key} onClick={() => setPanel(p.key)}
+                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all whitespace-nowrap
+                  ${panel === p.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                {p.label}
               </button>
             ))}
           </div>
 
-          {/* ── 메인 패널: 학생 현황 + 게시판 ── */}
+          {/* 학생 현황 패널 */}
           {panel === 'main' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <StudentList students={students} submissions={submissions} onReview={handleReview}/>
-              <BoardFeed/>
+              <StudentList students={students} submissions={submissions} onReview={handleReview} />
+              <BoardFeed />
             </div>
           )}
 
-          {/* ── 퀴즈 관리 패널 ── */}
+          {/* 퀴즈 목록 패널 */}
           {panel === 'quizzes' && (
             <div className="bg-white rounded-2xl p-6 shadow-md">
               <div className="flex items-center justify-between mb-5">
-                <h2 className="font-bold text-lg">🎯 퀴즈 목록</h2>
+                <h2 className="font-bold text-lg">퀴즈 목록</h2>
                 <button onClick={() => setShowQuizGen(true)}
                   className="bg-indigo-600 text-white text-sm font-bold px-4 py-2 rounded-xl hover:bg-indigo-700 transition-colors">
                   + 새 퀴즈 생성
                 </button>
               </div>
-              <QuizList refresh={quizRefresh}/>
+              <QuizList refresh={quizRefresh} />
+            </div>
+          )}
+
+          {/* 출석부 관리 패널 */}
+          {panel === 'roster' && appUser && (
+            <div className="bg-white rounded-2xl p-6 shadow-md">
+              <RosterManager
+                schoolId={appUser.schoolId}
+                semester={appUser.semester}
+                classId={appUser.classId}
+              />
             </div>
           )}
         </main>
 
-        {/* ── 모달들 ── */}
+        {/* 모달들 */}
         {reviewing && (
           <FeedbackEditor
             student={reviewing.student}
             submission={reviewing.sub}
             feedback={reviewing.feedback}
             onClose={() => setReviewing(null)}
-            onSent={() => { setReviewing(null); loadData(); showToast('피드백이 전송되었어요! 📨') }}
+            onSent={() => { setReviewing(null); loadData(); showToast('피드백이 전송됐어요! 🎉') }}
           />
         )}
         {showAssign && (
           <AssignmentModal
             onClose={() => setShowAssign(false)}
-            onCreated={() => { setShowAssign(false); showToast('과제가 부여되었어요!') }}
+            onCreated={() => { setShowAssign(false); showToast('숙제가 출제됐어요!') }}
           />
         )}
         {showQuizGen && (
@@ -154,12 +173,12 @@ export default function TeacherPage() {
               setShowQuizGen(false)
               setQuizRefresh(n => n + 1)
               setPanel('quizzes')
-              showToast('퀴즈가 생성되었어요! 🎯')
+              showToast('퀴즈가 생성됐어요! 🎯')
             }}
           />
         )}
         {showErrorPattern && (
-          <ErrorPatternViewer onClose={() => setShowErrorPattern(false)}/>
+          <ErrorPatternViewer onClose={() => setShowErrorPattern(false)} />
         )}
 
         {toast && (
