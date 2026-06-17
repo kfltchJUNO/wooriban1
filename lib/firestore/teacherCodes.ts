@@ -9,9 +9,11 @@ import { db } from '@/firebase/firebaseConfig'
 // 형식: {학교}{연도2}{학기2}{급수2}{반2}{선생님번호2}
 // 예:   DG   26    SU    02    10    01  → DG26SU021001
 
+// schools 문서 ID = 코드 소문자 (dk, dg)
+// SchoolManager에서 addSchool 시 code.toLowerCase()를 문서 ID로 사용
 const SCHOOL_MAP: Record<string, string> = {
-  DG: 'dongguk',
-  DK: 'dankook',
+  DG: 'dg',
+  DK: 'dk',
 }
 
 const SCHOOL_LABEL: Record<string, string> = {

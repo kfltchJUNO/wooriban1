@@ -27,10 +27,12 @@ export default function RegisterForm() {
         {mode === 'student' && <StudentRegister onBack={() => setMode('select')} router={router} />}
         {mode === 'teacher' && <TeacherRegister onBack={() => setMode('select')} router={router} />}
 
-        <p className="text-center text-sm text-gray-400 mt-6">
-          이미 계정이 있나요?{' '}
-          <a href="/login" className="text-indigo-600 font-bold hover:underline">로그인</a>
-        </p>
+        {mode !== 'select' && (
+          <p className="text-center text-sm text-gray-400 mt-6">
+            이미 계정이 있나요?{' '}
+            <a href="/login" className="text-indigo-600 font-bold hover:underline">로그인</a>
+          </p>
+        )}
       </div>
     </div>
   )
@@ -56,6 +58,11 @@ function ModeSelect({ onSelect }: { onSelect: (m: Mode) => void }) {
           <p className="text-xs text-gray-400">선생님 코드로 가입</p>
         </div>
       </button>
+      <div className="pt-2 text-center">
+        <a href="/login" className="text-sm text-indigo-600 font-bold hover:underline">
+          ← 로그인으로 돌아가기
+        </a>
+      </div>
     </div>
   )
 }
