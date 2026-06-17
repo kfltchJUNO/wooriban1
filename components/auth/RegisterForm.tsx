@@ -6,7 +6,7 @@ import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth'
 import { useRouter } from 'next/navigation'
 import { auth } from '@/firebase/firebaseConfig'
 import { createUser } from '@/lib/firestore/users'
-import { verifyRosterEntry, linkRosterToUid } from '@/lib/firestore/roster'
+import { verifyRosterEntry, linkRosterToUid, type RosterEntry } from '@/lib/firestore/roster'
 import { validateTeacherCode, useTeacherCode } from '@/lib/firestore/teacherCodes'
 import { hashStudentId } from '@/lib/crypto'
 import { getAllSchools, formatSemesterId, formatClassId, type SchoolData } from '@/lib/firestore/schools'
@@ -134,7 +134,7 @@ function StudentRegister({ onBack, router }: { onBack: () => void; router: Retur
   const [school,   setSchool]   = useState('')
   const [semester, setSemester] = useState('')
   const [classId,  setClassId]  = useState('')
-  const [roster,   setRoster]   = useState<{ id: string; nickname?: string; nameKr?: string } | null>(null)
+  const [roster,   setRoster]   = useState<RosterEntry | null>(null)
   const [err,      setErr]      = useState('')
   const [loading,  setLoading]  = useState(false)
 
@@ -216,12 +216,14 @@ function StudentRegister({ onBack, router }: { onBack: () => void; router: Retur
         status:             'active',
         schoolId:           school,
         semester,
-        classId,
+        classId:            roster?.classId ?? classId,
         sortOrder:          999,
         freeWritingEnabled: true,
         loginType:          'email',
       })
       if (roster) await linkRosterToUid(roster.id, uid)
+      // Firestore 반영 대기
+      await new Promise(r => setTimeout(r, 800))
       router.push('/student')
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '오류'
