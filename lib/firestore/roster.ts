@@ -79,30 +79,42 @@ export async function verifyRosterEntry(
   schoolId:      string,
   semester:      string,
   classId:       string,
-  nameEn:        string,   // 대문자 여권 영문명
-  studentIdHash: string,   // 학번 해시
+  nameEn:        string,
+  studentIdHash: string,
 ): Promise<{ valid: boolean; entry?: RosterEntry; error?: string }> {
+  // schoolId + semester + nameEn + hash 로 검증
+  // (classId는 선생님/학생 간 불일치 가능성으로 제외)
   const q = query(
     collection(db, "roster"),
-    where("schoolId",      "==", schoolId),
     where("semester",      "==", semester),
-    where("classId",       "==", classId),
     where("nameEn",        "==", nameEn),
     where("studentIdHash", "==", studentIdHash),
-  );
-  const snap = await getDocs(q);
+  )
+  const snap = await getDocs(q)
 
   if (snap.empty) {
-    return { valid: false, error: "출석부에 등록된 여권 영문명과 학번이 일치하지 않아요." };
+    // schoolId까지 포함해서 재시도 (semester 불일치 가능성)
+    const q2 = query(
+      collection(db, "roster"),
+      where("nameEn",        "==", nameEn),
+      where("studentIdHash", "==", studentIdHash),
+    )
+    const snap2 = await getDocs(q2)
+    if (snap2.empty) {
+      return { valid: false, error: "출석부에 등록된 여권 영문명과 학번이 일치하지 않아요." }
+    }
+    const entry2 = { id: snap2.docs[0].id, ...snap2.docs[0].data() } as RosterEntry
+    if (entry2.status === "registered") {
+      return { valid: false, error: "이미 가입된 계정이에요. 로그인해주세요." }
+    }
+    return { valid: true, entry: entry2 }
   }
 
-  const entry = { id: snap.docs[0].id, ...snap.docs[0].data() } as RosterEntry;
-
+  const entry = { id: snap.docs[0].id, ...snap.docs[0].data() } as RosterEntry
   if (entry.status === "registered") {
-    return { valid: false, error: "이미 가입된 계정이에요. 로그인해주세요." };
+    return { valid: false, error: "이미 가입된 계정이에요. 로그인해주세요." }
   }
-
-  return { valid: true, entry };
+  return { valid: true, entry }
 }
 
 // ── 가입 완료 시 uid 연결 ─────────────────────────────────────────
