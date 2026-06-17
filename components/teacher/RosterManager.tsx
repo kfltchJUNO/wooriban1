@@ -117,6 +117,7 @@ export default function RosterManager({ schoolId: rawSchoolId, semester, classId
       nameKr:        form.nameKr.trim(),
       nickname:      form.nickname.trim() || form.nameKr.trim(),
       studentIdHash,
+      sortOrder:     roster.length,  // 현재 인원 수 = 다음 순서
       schoolId, semester, classId,
     })
     setForm({ nameEn: '', nameKr: '', nickname: '', studentId: '' })
@@ -173,10 +174,13 @@ export default function RosterManager({ schoolId: rawSchoolId, semester, classId
   const handleBulkSubmit = async (rows: PreviewRow[]) => {
     const valid = rows.filter(r => !r.error)
     if (!valid.length) { showToast('등록 가능한 데이터가 없어요.'); return }
-    const entries = await Promise.all(valid.map(async r => ({
-      nameEn: r.nameEn, nameKr: r.nameKr,
-      nickname: r.nickname || r.nameKr,
+    const base = roster.length  // 기존 인원 수부터 순서 시작
+    const entries = await Promise.all(valid.map(async (r, i) => ({
+      nameEn:        r.nameEn,
+      nameKr:        r.nameKr,
+      nickname:      r.nickname || r.nameKr,
       studentIdHash: await hashStudentId(r.studentId),
+      sortOrder:     base + i,  // 입력 순서 그대로
       schoolId, semester, classId,
     })))
     await addRosterBulk(entries)
