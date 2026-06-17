@@ -8,13 +8,14 @@ import { db } from "@/firebase/firebaseConfig";
 // ── 타입 ──────────────────────────────────────────────────────────
 export interface RosterEntry {
   id:            string;
-  nameEn:        string;   // 여권 영문명 (대문자, 검증 키)
-  nameKr:        string;   // 한글명
-  nickname:      string;   // 부르는 이름 (선생님 설정, 미설정시 nameKr)
-  studentIdHash: string;   // 학번 SHA-256 해시 (원본 저장 안 함)
+  nameEn:        string;
+  nameKr:        string;
+  nickname:      string;
+  studentIdHash: string;
   schoolId:      string;
   semester:      string;
   classId:       string;
+  sortOrder?:    number;   // 출석부 순서
   status:        "unregistered" | "registered";
   uid:           string | null;
   createdAt:     Timestamp | null;
@@ -51,7 +52,7 @@ export async function addRosterEntry(
 // ── 학생 정보 수정 (선생님) ──────────────────────────────────────
 export async function updateRosterEntry(
   id: string,
-  data: Partial<Pick<RosterEntry, "nameEn" | "nameKr" | "nickname" | "studentIdHash">>
+  data: Partial<Pick<RosterEntry, "nameEn" | "nameKr" | "nickname" | "studentIdHash" | "sortOrder">>
 ) {
   return updateDoc(doc(db, "roster", id), data);
 }

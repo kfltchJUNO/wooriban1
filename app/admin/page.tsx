@@ -10,6 +10,9 @@ import TeacherCodeManager from '@/components/admin/TeacherCodeManager'
 import SchoolManager from '@/components/admin/SchoolManager'
 import { getAllUsers, getPendingUsers, approveUser, rejectUser, deleteUser, updateFreeWritingEnabled } from '@/lib/firestore/users'
 import { deleteTextbook } from '@/lib/firestore/textbooks'
+import { getAllTeacherCodes } from '@/lib/firestore/teacherCodes'
+import { updateDoc, doc } from 'firebase/firestore'
+import { db } from '@/firebase/firebaseConfig'
 import { AppUser } from '@/types/user'
 import { Textbook } from '@/types/textbook'
 import { formatSchool, formatSemester, formatClass } from '@/lib/utils/classUtils'
@@ -50,10 +53,40 @@ export default function AdminPage() {
 
   // ── 학생 삭제 ────────────────────────────────────────────────────
   const handleDeleteUser = async (user: AppUser) => {
-    if (!confirm(`"${user.nameKr}"를 삭제할까요?\n이 작업은 되돌릴 수 없어요.`)) return
-    await deleteUser(user.uid)
-    showToast(`${user.nameKr} 삭제됐어요.`)
-    loadAll()
+    if (!confirm(`"${user.nameKr}"를 삭제할까요?\nFirebase 계정과 데이터가 모두 삭제되며 되돌릴 수 없어요.`)) return
+    try {
+      // 선생님이면 코드 초기화
+      if (user.role === 'teacher') {
+        const codes = await getAllTeacherCodes()
+        const usedCode = codes.find(c => c.usedBy === user.uid)
+        if (usedCode) {
+          await updateDoc(doc(db, 'teacherCodes', usedCode.code), {
+            used: false, usedBy: null,
+          })
+        }
+      }
+
+      // Firestore 문서 삭제
+      await deleteUser(user.uid)
+
+      // Firebase Auth 계정 삭제 (Admin SDK API)
+      const { getAuth } = await import('firebase/auth')
+      const currentUser = getAuth().currentUser
+      if (currentUser) {
+        const token = await currentUser.getIdToken()
+        await fetch('/api/admin/delete-user', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body:    JSON.stringify({ uid: user.uid }),
+        })
+      }
+
+      showToast(`${user.nameKr} 계정이 완전히 삭제됐어요.`)
+      loadAll()
+    } catch (e) {
+      showToast('삭제 중 오류가 발생했어요.')
+      console.error(e)
+    }
   }
 
   // ── 교재 파일 교체 ────────────────────────────────────────────────

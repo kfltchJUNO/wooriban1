@@ -177,11 +177,17 @@ function StudentRegister({ onBack, router }: { onBack: () => void; router: Retur
     setLoading(true); setErr('')
     try {
       const hash   = await hashStudentId(studentId)
+      console.log('[Verify] school:', school, 'semester:', semester, 'classId:', classId)
+      console.log('[Verify] nameEn:', nameEn.trim().toUpperCase(), 'hash:', hash)
       const result = await verifyRosterEntry(school, semester, classId, nameEn.trim().toUpperCase(), hash)
+      console.log('[Verify] result:', result)
       if (!result.valid) { setErr(result.error ?? '인증 실패'); return }
       setRoster(result.entry ?? null)
       setStep(2)
-    } catch { setErr('오류가 발생했어요.') }
+    } catch (e) {
+      console.error('[Verify Error]', e)
+      setErr(`오류: ${e instanceof Error ? e.message : String(e)}`)
+    }
     finally { setLoading(false) }
   }
 
