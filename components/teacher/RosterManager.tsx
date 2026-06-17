@@ -6,6 +6,9 @@ import {
   deleteRosterEntry, addRosterBulk, type RosterEntry,
 } from '@/lib/firestore/roster'
 import { hashStudentId } from '@/lib/crypto'
+import { getAllSchools } from '@/lib/firestore/schools'
+import { getDocs, collection, query, where, updateDoc, doc } from 'firebase/firestore'
+import { db } from '@/firebase/firebaseConfig'
 
 interface Props {
   schoolId: string
@@ -21,12 +24,33 @@ interface PreviewRow {
   error?:    string
 }
 
-export default function RosterManager({ schoolId, semester, classId }: Props) {
+export default function RosterManager({ schoolId: rawSchoolId, semester, classId }: Props) {
   const [roster,    setRoster]    = useState<RosterEntry[]>([])
   const [loading,   setLoading]   = useState(true)
   const [editId,    setEditId]    = useState<string | null>(null)
   const [toast,     setToast]     = useState('')
   const [inputMode, setInputMode] = useState<'single' | 'excel' | 'paste'>('single')
+  const [schoolId,  setSchoolId]  = useState(rawSchoolId)  // 정규화된 schoolId
+
+  // schools 컬렉션에서 실제 문서 ID로 정규화
+  // appUser.schoolId("dankook")와 schools 문서 ID("dk")가 다를 수 있음
+  useEffect(() => {
+    getAllSchools().then(schools => {
+      // 1. 직접 일치
+      const direct = schools.find(s => s.id === rawSchoolId)
+      if (direct) { setSchoolId(direct.id); return }
+      // 2. name으로 매칭 (예: "단국대학교" 포함)
+      const byName = schools.find(s =>
+        s.name.includes(rawSchoolId) || rawSchoolId.includes(s.id)
+      )
+      if (byName) { setSchoolId(byName.id); return }
+      // 3. code 소문자로 매칭 (dankook → dk 처럼 앞 2자 비교)
+      const byCode = schools.find(s =>
+        rawSchoolId.startsWith(s.id) || s.id === rawSchoolId.slice(0, 2)
+      )
+      if (byCode) setSchoolId(byCode.id)
+    })
+  }, [rawSchoolId])
 
   const [form, setForm] = useState({
     nameEn: '', nameKr: '', nickname: '', studentId: '',
@@ -36,15 +60,50 @@ export default function RosterManager({ schoolId, semester, classId }: Props) {
   const [preview,     setPreview]     = useState<PreviewRow[]>([])
   const [bulkText,    setBulkText]    = useState('')
   const [bulkPreview, setBulkPreview] = useState<PreviewRow[]>([])
+  const [migrating,   setMigrating]   = useState(false)
 
-  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500) }
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
   const load = async () => {
     setLoading(true)
-    try { setRoster(await getRoster(schoolId, semester, classId)) }
-    finally { setLoading(false) }
+    try {
+      // 정규화된 schoolId로 조회, 없으면 rawSchoolId로도 조회
+      const data = await getRoster(schoolId, semester, classId)
+      if (data.length === 0 && schoolId !== rawSchoolId) {
+        const fallback = await getRoster(rawSchoolId, semester, classId)
+        setRoster(fallback)
+      } else {
+        setRoster(data)
+      }
+    } finally { setLoading(false) }
   }
-  useEffect(() => { load() }, [schoolId, semester, classId])
+
+  useEffect(() => { if (schoolId) load() }, [schoolId, semester, classId])
+
+  // ── 기존 데이터 마이그레이션 ─────────────────────────────────
+  const handleMigrate = async () => {
+    if (!confirm(`기존 출석부 데이터의 schoolId를 "${schoolId}"로 일괄 수정할까요?`)) return
+    setMigrating(true)
+    try {
+      // rawSchoolId로 저장된 roster 문서 조회
+      const q    = query(
+        collection(db, 'roster'),
+        where('schoolId', '==', rawSchoolId),
+        where('semester', '==', semester),
+        where('classId',  '==', classId),
+      )
+      const snap = await getDocs(q)
+      if (snap.empty) { showToast('마이그레이션할 데이터가 없어요.'); return }
+
+      await Promise.all(snap.docs.map(d =>
+        updateDoc(doc(db, 'roster', d.id), { schoolId })
+      ))
+      showToast(`${snap.size}개 데이터가 수정됐어요!`)
+      await load()
+    } catch (e) {
+      showToast('마이그레이션 실패: ' + String(e))
+    } finally { setMigrating(false) }
+  }
 
   // ── 단일 추가 ─────────────────────────────────────────────────
   const handleAdd = async () => {
@@ -164,7 +223,25 @@ export default function RosterManager({ schoolId, semester, classId }: Props) {
             전체 {roster.length}명 · 가입완료 {registered.length}명 · 미가입 {unregistered.length}명
           </p>
         </div>
+        {/* schoolId 불일치 시 마이그레이션 버튼 */}
+        {schoolId !== rawSchoolId && (
+          <button onClick={handleMigrate} disabled={migrating}
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition-colors disabled:opacity-40">
+            {migrating ? '수정 중...' : '⚠️ 데이터 수정 필요 (클릭)'}
+          </button>
+        )}
       </div>
+
+      {/* schoolId 불일치 경고 */}
+      {schoolId !== rawSchoolId && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
+          <p className="font-bold">⚠️ 출석부 데이터 수정이 필요해요</p>
+          <p className="text-xs mt-0.5">
+            기존 데이터의 schoolId({rawSchoolId})와 현재 학교 ID({schoolId})가 달라요.
+            위 버튼을 눌러 일괄 수정해주세요.
+          </p>
+        </div>
+      )}
 
       {/* 입력 모드 탭 */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
