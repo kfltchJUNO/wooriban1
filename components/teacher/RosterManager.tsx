@@ -210,10 +210,27 @@ export default function RosterManager({ schoolId: rawSchoolId, semester, classId
     await load()
   }
 
-  // sortOrder 기준 정렬
-  const sorted = [...roster].sort((a, b) =>
-    (a.sortOrder ?? 999) - (b.sortOrder ?? 999)
-  )
+  const [sortBy, setSortBy] = useState<'manual' | 'nameKr' | 'nameEn' | 'status'>('manual')
+
+  // ── 정렬 ─────────────────────────────────────────────────────
+  const sorted = [...roster].sort((a, b) => {
+    switch (sortBy) {
+      case 'nameKr':
+        return (a.nameKr ?? '').localeCompare(b.nameKr ?? '', 'ko')
+      case 'nameEn':
+        return (a.nameEn ?? '').localeCompare(b.nameEn ?? '')
+      case 'status':
+        // 미가입 먼저
+        if (a.status !== b.status) return a.status === 'unregistered' ? -1 : 1
+        return (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
+      case 'manual':
+      default:
+        // sortOrder 없는 항목은 createdAt 기준으로 뒤로
+        const aOrder = a.sortOrder ?? 9999
+        const bOrder = b.sortOrder ?? 9999
+        return aOrder - bOrder
+    }
+  })
 
   const registered   = roster.filter(r => r.status === 'registered')
   const unregistered = roster.filter(r => r.status === 'unregistered')
@@ -350,8 +367,26 @@ export default function RosterManager({ schoolId: rawSchoolId, semester, classId
 
       {/* 출석부 목록 */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 text-xs text-gray-400">
-          ↕ 순서 버튼으로 출석부 순서를 고정할 수 있어요
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-3 flex-wrap">
+          <span className="text-xs text-gray-400">↕ 순서 버튼으로 출석부 순서를 고정할 수 있어요</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-400 font-semibold">정렬:</span>
+            {([
+              ['manual',  '입력순'],
+              ['nameKr',  '가나다순'],
+              ['nameEn',  '영문순'],
+              ['status',  '미가입 먼저'],
+            ] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setSortBy(key)}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors ${
+                  sortBy === key
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -385,6 +420,7 @@ export default function RosterManager({ schoolId: rawSchoolId, semester, classId
                   idx={idx}
                   total={sorted.length}
                   isEditing={editId === entry.id}
+                  isManualSort={sortBy === 'manual'}
                   onEdit={() => setEditId(entry.id)}
                   onSave={async data => { await updateRosterEntry(entry.id, data); setEditId(null); await load() }}
                   onCancel={() => setEditId(null)}
@@ -461,17 +497,18 @@ function PreviewTable({ rows, onSubmit, onClear }: {
 }
 
 // ── 출석부 행 ─────────────────────────────────────────────────────
-function RosterRow({ entry, idx, total, isEditing, onEdit, onSave, onCancel, onDelete, onMoveUp, onMoveDown }: {
-  entry:      RosterEntry
-  idx:        number
-  total:      number
-  isEditing:  boolean
-  onEdit:     () => void
-  onSave:     (data: Partial<RosterEntry>) => void
-  onCancel:   () => void
-  onDelete:   () => void
-  onMoveUp:   () => void
-  onMoveDown: () => void
+function RosterRow({ entry, idx, total, isEditing, isManualSort, onEdit, onSave, onCancel, onDelete, onMoveUp, onMoveDown }: {
+  entry:        RosterEntry
+  idx:          number
+  total:        number
+  isEditing:    boolean
+  isManualSort: boolean
+  onEdit:       () => void
+  onSave:       (data: Partial<RosterEntry>) => void
+  onCancel:     () => void
+  onDelete:     () => void
+  onMoveUp:     () => void
+  onMoveDown:   () => void
 }) {
   const [nameEn,    setNameEn]    = useState(entry.nameEn)
   const [nameKr,    setNameKr]    = useState(entry.nameKr)
@@ -523,10 +560,10 @@ function RosterRow({ entry, idx, total, isEditing, onEdit, onSave, onCancel, onD
       {/* 순서 버튼 */}
       <td className="px-2 py-3 text-center">
         <div className="flex flex-col items-center gap-0.5">
-          <button onClick={onMoveUp} disabled={idx === 0}
+          <button onClick={onMoveUp} disabled={!isManualSort || idx === 0}
             className="text-gray-300 hover:text-indigo-500 disabled:opacity-20 text-xs leading-none">▲</button>
           <span className="text-xs text-gray-400 font-mono">{idx + 1}</span>
-          <button onClick={onMoveDown} disabled={idx === total - 1}
+          <button onClick={onMoveDown} disabled={!isManualSort || idx === total - 1}
             className="text-gray-300 hover:text-indigo-500 disabled:opacity-20 text-xs leading-none">▼</button>
         </div>
       </td>
