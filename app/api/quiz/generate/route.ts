@@ -1,7 +1,13 @@
-// 📁 app/api/quiz/generate/route.ts
+// 📁 app/api/quiz/generate/route.ts (우리반)
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import { adminDb } from '@/firebase/firebaseAdmin'
+import { adminDb, adminAuth } from '@/firebase/firebaseAdmin'
+import { deductCredits, refundCredits, InsufficientCreditsError } from '@/lib/server/credits'
+
+// ── 유료화 스위치 ─────────────────────────────────────────────────
+// 현재 무료 운영: 환경변수 미설정 시 0 → 차감 로직 건너뜀
+// 유료 전환 시 Vercel에 WOORIBAN_QUIZ_CHALK_COST=3 등으로 설정만 하면 됨
+const QUIZ_CHALK_COST = Number(process.env.WOORIBAN_QUIZ_CHALK_COST ?? 0)
 
 const API_KEYS = [process.env.GEMINI_KEY_1!, process.env.GEMINI_KEY_2].filter(Boolean) as string[]
 let keyIdx = 0
@@ -71,16 +77,11 @@ ${JSON.stringify(unitData, null, 2)}
       "type": "multiple_choice",
       "category": "vocabulary",
       "question": "다음 중 '지치다'의 의미로 가장 알맞은 것은?",
-      "choices": [
-        "① 몸이나 마음이 너무 힘들어 기운이 없어지다",
-        "② 어떤 일에 매우 집중하여 몰두하다",
-        "③ 기쁨이나 흥분으로 활기차게 움직이다",
-        "④ 오랫동안 한 자리에 머물러 있다"
-      ],
+      "choices": ["① ...", "② ...", "③ ...", "④ ..."],
       "correctIndex": 0,
-      "answer": "① 몸이나 마음이 너무 힘들어 기운이 없어지다",
-      "explanation": "'지치다'는 피로와 탈진을 의미합니다.",
-      "hint": "신체적·정신적 피로와 관련된 단어입니다.",
+      "answer": "① ...",
+      "explanation": "...",
+      "hint": "...",
       "difficulty": "easy"
     }
   ]
@@ -88,23 +89,63 @@ ${JSON.stringify(unitData, null, 2)}
 `.trim()
 }
 
-export async function POST(req: NextRequest) {
-  let body: { textbookId?: string; unitId?: string; purpose?: string; counts?: Record<string, number> } = {}
+// ── 요청자 인증 + 선생님 확인 ─────────────────────────────────────
+async function verifyTeacher(req: NextRequest): Promise<{ uid: string } | { error: string; status: number }> {
+  const authHeader = req.headers.get('authorization') ?? ''
+  const token = authHeader.replace('Bearer ', '')
+  if (!token) return { error: '로그인이 필요합니다.', status: 401 }
 
   try {
-    body = await req.json()
+    const decoded = await adminAuth.verifyIdToken(token)
+    const userSnap = await adminDb.collection('users').doc(decoded.uid).get()
+    const role = userSnap.data()?.role
+    if (role !== 'teacher' && role !== 'admin') {
+      return { error: '선생님만 퀴즈를 생성할 수 있습니다.', status: 403 }
+    }
+    return { uid: decoded.uid }
+  } catch {
+    return { error: '인증에 실패했습니다.', status: 401 }
+  }
+}
+
+export async function POST(req: NextRequest) {
+  // 1) 인증 (기존엔 없었음 — 필수 보안 보강)
+  const authResult = await verifyTeacher(req)
+  if ('error' in authResult) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status })
+  }
+  const { uid } = authResult
+
+  let charged = false
+
+  try {
+    const body = await req.json()
     const { textbookId, unitId, purpose = 'review', counts = { vocab: 8, grammar: 6, idiom: 4, ox: 2 } } = body
 
     if (!textbookId || !unitId) {
       return NextResponse.json({ error: '필수 항목 누락' }, { status: 400 })
     }
 
-    // 단원 데이터 조회
+    // 2) 유료화 대비 차감 (현재 QUIZ_CHALK_COST=0이라 건너뜀)
+    if (QUIZ_CHALK_COST > 0) {
+      try {
+        await deductCredits(uid, QUIZ_CHALK_COST, '우리반 퀴즈 생성')
+        charged = true
+      } catch (e) {
+        if (e instanceof InsufficientCreditsError) {
+          return NextResponse.json({ error: '분필이 부족합니다.' }, { status: 402 })
+        }
+        throw e
+      }
+    }
+
+    // 3) 단원 데이터 조회
     const unitSnap = await adminDb
       .collection('textbooks').doc(textbookId)
       .collection('units').doc(unitId).get()
 
     if (!unitSnap.exists) {
+      if (charged) await refundCredits(uid, QUIZ_CHALK_COST, '단원 없음')
       return NextResponse.json({ error: '단원을 찾을 수 없어요' }, { status: 404 })
     }
 
@@ -120,13 +161,18 @@ export async function POST(req: NextRequest) {
       parsed = JSON.parse(clean)
     } catch {
       console.error('Quiz JSON 파싱 실패:', clean.slice(0, 300))
+      if (charged) await refundCredits(uid, QUIZ_CHALK_COST, '생성 실패(파싱)')
       return NextResponse.json({ error: '퀴즈 생성 실패 (JSON 오류)' }, { status: 500 })
     }
 
-    return NextResponse.json({ questions: parsed.questions })
+    return NextResponse.json({
+      questions:  parsed.questions,
+      chalkSpent: charged ? QUIZ_CHALK_COST : 0,
+    })
 
   } catch (e) {
     console.error('Quiz generate error:', e)
+    if (charged) await refundCredits(uid, QUIZ_CHALK_COST, '생성 실패(서버 오류)').catch(() => {})
     return NextResponse.json({ error: '퀴즈 생성 실패' }, { status: 500 })
   }
 }
