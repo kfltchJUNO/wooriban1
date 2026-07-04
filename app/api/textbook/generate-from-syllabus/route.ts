@@ -15,8 +15,10 @@ class InvalidPdfError extends Error {
   constructor(detail: string) { super(detail); this.name = 'InvalidPdfError' }
 }
 
-const MAX_SIZE_MB        = 18
-const MIN_CHARS_PER_PAGE = 25
+// ⚠️ 실사용 근거로 조정된 값 (parse route와 동일 원칙 — 상세 설명은 그쪽 주석 참고)
+const MAX_SIZE_MB    = 45
+const MAX_PAGES_HARD = 70
+const MAX_PAGES_SOFT = 50
 
 async function preflightCheckPdf(buffer: Buffer) {
   const pdfParse = await loadPdfParse()
@@ -24,7 +26,7 @@ async function preflightCheckPdf(buffer: Buffer) {
   const numPages = parsed.numpages || 1
   const textLength = parsed.text.replace(/\s+/g, '').length
   const avgCharsPerPage = textLength / numPages
-  return { numPages, avgCharsPerPage, looksScanned: avgCharsPerPage < MIN_CHARS_PER_PAGE }
+  return { numPages, avgCharsPerPage, looksScanned: avgCharsPerPage < 25 }  // 참고용, 차단 근거 아님
 }
 
 const API_KEYS = [process.env.GEMINI_KEY_1!, process.env.GEMINI_KEY_2].filter(Boolean) as string[]
@@ -183,26 +185,29 @@ export async function POST(req: NextRequest) {
     const bucket = adminStorage.bucket()
     const file   = bucket.file(storagePath)
 
-    // 용량 사전 점검
+    // 용량 사전 점검 (근거는 parse route와 동일 — 46.6MB 성공/50.2MB 실패 사례 기준)
     const [metadata] = await file.getMetadata()
     const sizeMB = Number(metadata.size ?? 0) / 1024 / 1024
     if (sizeMB > MAX_SIZE_MB) {
       throw new InvalidPdfError(
-        `PDF 파일이 너무 커요 (${sizeMB.toFixed(1)}MB, 최대 ${MAX_SIZE_MB}MB). 더 작은 파일로 나눠서 업로드해주세요.`
+        `PDF 파일이 너무 커요 (${sizeMB.toFixed(1)}MB, 권장 ${MAX_SIZE_MB}MB 이하). 더 작은 파일로 나눠서 업로드해주세요.`
       )
     }
 
     const [buffer] = await file.download()
 
-    // 스캔본(텍스트 없음) 사전 점검 — 지침서도 텍스트가 있어야 주제를 읽을 수 있음
+    // 페이지 수 사전 점검 — 스캔 여부는 차단 근거로 쓰지 않음(스캔본 성공 사례 있음)
     try {
       const preflight = await preflightCheckPdf(buffer)
-      console.log(`지침서 사전점검: ${preflight.numPages}페이지, 평균 ${preflight.avgCharsPerPage.toFixed(0)}자/페이지`)
-      if (preflight.looksScanned) {
+      console.log(`지침서 사전점검: ${preflight.numPages}페이지, 평균 ${preflight.avgCharsPerPage.toFixed(0)}자/페이지, 스캔추정=${preflight.looksScanned}(참고용)`)
+      if (preflight.numPages > MAX_PAGES_HARD) {
         throw new InvalidPdfError(
-          `이 PDF는 텍스트를 인식할 수 없는 스캔 이미지로 보여요. ` +
-          `OCR을 거친 PDF로 다시 저장하거나 텍스트 파일로 정리해서 업로드해주세요.`
+          `페이지 수가 너무 많아요 (${preflight.numPages}페이지, 권장 ${MAX_PAGES_HARD}페이지 이하). ` +
+          `더 작은 단위로 나눠서 업로드해주세요.`
         )
+      }
+      if (preflight.numPages > MAX_PAGES_SOFT) {
+        console.warn(`⚠️ 페이지 수 ${preflight.numPages}쪽 — 실패 위험 있음`)
       }
     } catch (e) {
       if (e instanceof InvalidPdfError) throw e
