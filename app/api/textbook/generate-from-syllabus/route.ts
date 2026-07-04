@@ -4,7 +4,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { adminDb, adminStorage } from '@/firebase/firebaseAdmin'
-import pdfParse from 'pdf-parse'
+// pdf-parse: 설치 버전의 export 형태가 불명확해 동적 import + any 캐스팅으로 처리
+async function loadPdfParse(): Promise<(buf: Buffer) => Promise<{ numpages: number; text: string }>> {
+  const mod = await import('pdf-parse') as unknown as Record<string, unknown>
+  const fn = (mod.default ?? mod) as (buf: Buffer) => Promise<{ numpages: number; text: string }>
+  return fn
+}
 
 class InvalidPdfError extends Error {
   constructor(detail: string) { super(detail); this.name = 'InvalidPdfError' }
@@ -14,6 +19,7 @@ const MAX_SIZE_MB        = 18
 const MIN_CHARS_PER_PAGE = 25
 
 async function preflightCheckPdf(buffer: Buffer) {
+  const pdfParse = await loadPdfParse()
   const parsed = await pdfParse(buffer)
   const numPages = parsed.numpages || 1
   const textLength = parsed.text.replace(/\s+/g, '').length

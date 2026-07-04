@@ -1,20 +1,37 @@
-// 📁 app/api/textbook/parse/route.ts
+// 📁 app/api/textbook/generate-from-syllabus/route.ts
+// 실제 교재 PDF가 없을 때, 지침서(커리큘럼 개요) PDF만으로 단원 초안을 생성
+// 교재 parse와 차이: "추출"이 아니라 "추정 생성" → 모든 unit에 aiGenerated: true 표시
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { adminDb, adminStorage } from '@/firebase/firebaseAdmin'
-// pdf-parse: package.json의 exports 필드가 서브패스 import를 막아둬서
-// 기본 export로 import. (직접 실행될 때만 동작하는 내부 디버그 코드가 있지만
-// 여기서는 모듈로 import만 하므로 영향 없음)
-import pdfParse from 'pdf-parse'
+// pdf-parse: 설치 버전의 export 형태가 불명확해 동적 import + any 캐스팅으로 처리
+async function loadPdfParse(): Promise<(buf: Buffer) => Promise<{ numpages: number; text: string }>> {
+  const mod = await import('pdf-parse') as unknown as Record<string, unknown>
+  const fn = (mod.default ?? mod) as (buf: Buffer) => Promise<{ numpages: number; text: string }>
+  return fn
+}
+
+class InvalidPdfError extends Error {
+  constructor(detail: string) { super(detail); this.name = 'InvalidPdfError' }
+}
+
+const MAX_SIZE_MB        = 18
+const MIN_CHARS_PER_PAGE = 25
+
+async function preflightCheckPdf(buffer: Buffer) {
+  const pdfParse = await loadPdfParse()
+  const parsed = await pdfParse(buffer)
+  const numPages = parsed.numpages || 1
+  const textLength = parsed.text.replace(/\s+/g, '').length
+  const avgCharsPerPage = textLength / numPages
+  return { numPages, avgCharsPerPage, looksScanned: avgCharsPerPage < MIN_CHARS_PER_PAGE }
+}
 
 const API_KEYS = [process.env.GEMINI_KEY_1!, process.env.GEMINI_KEY_2].filter(Boolean) as string[]
 let keyIdx = 0
 const getKey = () => { const k = API_KEYS[keyIdx % API_KEYS.length]; keyIdx++; return k }
 
-// ── 작업 종류별 모델 우선순위 ────────────────────────────────────
-// 릴레이(폴백) 방식은 그대로 유지하되, 작업 성격에 맞는 모델을 1순위로 둠
-// - 목차 추출: 구조 파악만 하면 되는 가벼운 작업 → 빠른 모델 우선
-// - 과별 상세 추출: 어휘/문법 누락 없이 정확해야 하는 작업 → pro 모델 우선
+// ── 작업 종류별 모델 우선순위 (parse route와 동일 원칙) ──────────
 const MODELS_TOC = [
   'gemini-2.5-flash-lite',
   'gemini-3.1-flash-lite',
@@ -30,36 +47,6 @@ const MODELS_UNIT = [
   'gemini-3.5-flash',
 ]
 
-// PDF 자체 문제(용량/스캔본/구조)로 판단되는 오류 — 재시도 불가, 사용자 액션 필요
-class InvalidPdfError extends Error {
-  constructor(detail: string) { super(detail); this.name = 'InvalidPdfError' }
-}
-
-// ── 사전 점검 기준 ────────────────────────────────────────────────
-const MAX_SIZE_MB          = 18     // Gemini inline data 실질 한도(20MB) 아래로 여유
-const MAX_PAGES_SOFT       = 60     // 이 이상이면 시간초과 위험 경고(차단은 안 함)
-const MIN_CHARS_PER_PAGE   = 25     // 페이지당 평균 이 글자 수 미만이면 "텍스트 없음(스캔본)"으로 판단
-
-interface PdfPreflightResult {
-  numPages:      number
-  avgCharsPerPage: number
-  looksScanned:  boolean
-}
-
-async function preflightCheckPdf(buffer: Buffer): Promise<PdfPreflightResult> {
-  const parsed = await pdfParse(buffer)
-  const numPages = parsed.numpages || 1
-  const textLength = parsed.text.replace(/\s+/g, '').length
-  const avgCharsPerPage = textLength / numPages
-  return {
-    numPages,
-    avgCharsPerPage,
-    looksScanned: avgCharsPerPage < MIN_CHARS_PER_PAGE,
-  }
-}
-
-// models: 이 호출에서 사용할 우선순위 리스트 (호출마다 독립적으로 1번부터 시작 —
-// 작업 종류별로 지정한 1순위 모델을 항상 먼저 시도하게 됨)
 async function generateWithRetry(
   genAI: GoogleGenerativeAI,
   prompt: string,
@@ -76,7 +63,8 @@ async function generateWithRetry(
       console.log(`[Gemini] 시도 ${i + 1}/${maxRetries} - 모델: ${currentModel}`)
       const model  = genAI.getGenerativeModel({
         model: currentModel,
-        generationConfig: { maxOutputTokens: 8192, temperature: 0.1 },
+        generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
+        // temperature는 파싱(0.1)보다 높게 — 지침서만 보고 "만들어내야" 하므로
       })
       const result = await model.generateContent([
         prompt,
@@ -94,17 +82,11 @@ async function generateWithRetry(
       console.log(`[Gemini] 성공 - 모델: ${currentModel}`)
       return text
     } catch (e: unknown) {
-      const status  = (e as { status?: number }).status
-      const message = (e as { message?: string }).message ?? ''
-
-      if (status === 400) {
-        console.log(`[Gemini] 400 오류 - PDF 자체 문제로 판단: ${message}`)
-        throw new InvalidPdfError(
-          'PDF를 처리하지 못했어요. 파일이 손상됐거나 Gemini가 지원하지 않는 형식일 수 있어요.'
-        )
-      }
-
+      const status = (e as { status?: number }).status
       const isRetryable = status === 503 || status === 429 || status === 500
+      if (status === 400) {
+        throw new InvalidPdfError('PDF를 처리하지 못했어요. 파일이 손상됐거나 지원하지 않는 형식일 수 있어요.')
+      }
       console.log(`[Gemini] 실패 - 모델: ${currentModel}, 상태: ${status}`)
       modelIdx++
       if (!isRetryable || i === maxRetries - 1) throw e
@@ -114,71 +96,53 @@ async function generateWithRetry(
   throw new Error('모든 모델 호출 실패')
 }
 
-const TABLE_OF_CONTENTS_PROMPT = `
-이 교재 파일의 목차를 분석해서 "과(Unit)" 단위의 정보만 JSON으로 추출해줘.
-
-⚠️ 매우 중요 — 과를 나누는 기준:
-- "N과", "Unit N", "Lesson N" 처럼 최상위 단원 번호가 바뀔 때만 새로운 과로 카운트해.
-- 한 과 안에 있는 "어휘", "문법", "말하기", "듣기", "읽기", "쓰기", "발음", "6-1", "6-2" 같은
-  하위 섹션이나 소제목은 절대 별도의 과로 세지 마. 이런 것들은 모두 같은 과에 속해.
-- 예를 들어 파일에 "6과"라는 표시가 1번만 나오고 그 아래 여러 소제목이 있어도,
-  이건 "1개의 과"야. 소제목 개수만큼 과를 만들면 안 돼.
-- 파일 전체가 하나의 과 분량이면 units 배열에 1개 항목만 넣어야 해.
+// ── 1단계: 지침서에서 단원 목차 "추정" ────────────────────────────
+const SYLLABUS_TOC_PROMPT = `
+이 파일은 정식 교재가 아니라 강의 지침서(커리큘럼 개요, 수업 계획서 등)입니다.
+문서에 나온 주차별/과별 주제를 바탕으로 단원(Unit) 목록을 정리해줘.
+문서에 "1과", "1주차", "Week 1" 등으로 구분돼 있으면 그 구분을 그대로 따르고,
+구분이 불명확하면 문서 전체를 하나의 흐름으로 보고 자연스러운 단위로 나눠줘.
 
 다른 텍스트 없이 JSON만 응답해:
 {
   "units": [
-    { "unitNumber": 6, "title": "일과 삶의 균형" }
+    { "unitNumber": 1, "title": "일과 취미 관련 표현" },
+    { "unitNumber": 2, "title": "..." }
   ]
 }
 `.trim()
 
-// 단일 과 파일임을 이미 알고 있을 때 사용 — 목차 추출 없이 바로 지정된 과로 처리
-function buildSingleUnitToc(unitNumber: number, title: string) {
-  return { units: [{ unitNumber, title }] }
-}
-
-function buildUnitPrompt(unitNumber: number, unitTitle: string) {
+// ── 2단계: 단원별 학습 내용 "추정 생성" ───────────────────────────
+function buildSyllabusUnitPrompt(unitNumber: number, unitTitle: string, level: string) {
   return `
-이 PDF 교재의 ${unitNumber}과 "${unitTitle}"에서 학습 항목을 빠짐없이 모두 추출해줘.
-교재에 수록된 모든 어휘, 문법, 관용표현을 누락 없이 추출하는 것이 중요해.
+이 파일은 정식 교재가 아니라 강의 지침서입니다.
+${unitNumber}과 "${unitTitle}"라는 주제에 맞춰, 학습자 수준(${level})에 적합한
+어휘·문법·관용어를 네가 직접 구성해줘. 지침서에 구체적 예문이나 단어가 없다면
+주제에 맞게 합리적으로 만들어내되, 실제 한국어 교육 현장에서 쓰이는 자연스러운
+표현으로 구성해줘.
+
+⚠️ 중요: 이건 추정 생성이야. 지침서에 명시된 내용이 있다면 최대한 반영하고,
+없는 부분은 주제에 맞게 새로 만든다는 걸 감안해서 무난하고 검증된 표현 위주로 구성해줘.
 
 규칙:
-- 어휘(vocabulary): 해당 과의 학습 어휘 목록 전체. 최소 10개 이상 추출.
-- 문법(grammar): 해당 과에서 다루는 문법 패턴 전체. 예문은 2개 이상.
-- 관용어/속담(idioms): 관용표현, 속담, 사자성어 등 모두 포함. 있으면 전부 추출.
+- 어휘(vocabulary): 주제에 맞는 학습 어휘 8~12개
+- 문법(grammar): 이 수준에서 배울 만한 문법 패턴 2~3개
+- 관용어/속담(idioms): 있으면 1~2개, 무리해서 넣지 않아도 됨
 
 다른 텍스트 없이 JSON만 응답해:
 {
   "vocabulary": [
-    {
-      "word": "지치다",
-      "meaning": "몸이나 마음의 힘이 빠져 기운이 없어지다",
-      "example": "야근이 너무 많아서 요즘 너무 지쳐요.",
-      "type": "동사"
-    }
+    { "word": "지치다", "meaning": "몸이나 마음의 힘이 빠지다", "example": "야근이 많아서 요즘 많이 지쳐요.", "type": "동사" }
   ],
   "grammar": [
-    {
-      "pattern": "V-느니",
-      "explanation": "앞의 행동보다 뒤의 선택이 더 나음을 표현. 부정문·체념 포함.",
-      "examples": [
-        "기다리느니 차라리 걸어가는 게 낫겠어요.",
-        "이렇게 고민하느니 그냥 물어보자."
-      ],
-      "notes": "동사 어간 + 느니. 격식체 불가."
-    }
+    { "pattern": "V-거니와", "explanation": "앞의 내용을 인정하면서 뒤에 다른 내용을 덧붙임", "examples": ["비도 오거니와 바람도 세니 나가지 맙시다."], "notes": "격식적 표현" }
   ],
   "idioms": [
-    {
-      "expression": "눈코 뜰 사이 없다",
-      "meaning": "너무 바빠서 잠시도 여유가 없다",
-      "example": "시험 기간이라 눈코 뜰 사이 없이 바빠요."
-    }
+    { "expression": "눈코 뜰 새 없다", "meaning": "매우 바쁘다", "example": "시험 기간이라 눈코 뜰 새 없이 바빠요." }
   ],
-  "readingTopics": ["워크라이프밸런스", "직장 내 갈등 인식"],
-  "listeningPoints": ["인터뷰 형식 정의", "인터뷰 형식 특징"],
-  "writingTheme": "여유가 있는 삶"
+  "readingTopics": ["관련 읽기 주제"],
+  "listeningPoints": ["관련 듣기 포인트"],
+  "writingTheme": "이 단원과 어울리는 쓰기 주제"
 }
 `.trim()
 }
@@ -204,96 +168,75 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     textbookId = body.textbookId
     storageUrl = body.storageUrl
-    // 과 단위로 이미 나눠서 올린 경우 — 목차 추출을 건너뛰고 이 값 그대로 사용
-    // { unitNumber: 6, title: "일과 삶의 균형" } 형태로 프론트에서 전달
-    const singleUnit: { unitNumber: number; title: string } | undefined = body.singleUnit
+    const level: string = body.level ?? '중급'
 
     if (!textbookId || !storageUrl) {
       return NextResponse.json({ error: '필수 항목 누락' }, { status: 400 })
     }
 
-    await adminDb.collection('textbooks').doc(textbookId).update({ status: 'parsing' })
+    await adminDb.collection('textbooks').doc(textbookId).update({
+      status: 'parsing',
+      sourceType: 'syllabus',   // ← 교재 파싱과 구분되는 표시
+    })
 
     const storagePath = extractStoragePath(storageUrl)
-    console.log('Storage path:', storagePath)
-
     const bucket = adminStorage.bucket()
     const file   = bucket.file(storagePath)
 
-    // ── 1차 점검: 파일 용량 ──────────────────────────────────────
+    // 용량 사전 점검
     const [metadata] = await file.getMetadata()
     const sizeMB = Number(metadata.size ?? 0) / 1024 / 1024
-    console.log(`PDF 크기: ${sizeMB.toFixed(1)}MB`)
     if (sizeMB > MAX_SIZE_MB) {
       throw new InvalidPdfError(
-        `PDF 파일이 너무 커요 (${sizeMB.toFixed(1)}MB, 최대 ${MAX_SIZE_MB}MB). ` +
-        `과 단위로 나눠서 여러 파일로 업로드해주세요.`
+        `PDF 파일이 너무 커요 (${sizeMB.toFixed(1)}MB, 최대 ${MAX_SIZE_MB}MB). 더 작은 파일로 나눠서 업로드해주세요.`
       )
     }
 
     const [buffer] = await file.download()
 
-    // ── 2차 점검: 텍스트 레이어 유무 + 페이지 수 ──────────────────
-    // (스캔 이미지 전용 PDF는 Gemini가 페이지를 이미지로 처리해야 해서
-    //  대용량+다페이지 조합에서 특히 실패율이 높음 — 미리 걸러서 안내)
-    let preflight: PdfPreflightResult
+    // 스캔본(텍스트 없음) 사전 점검 — 지침서도 텍스트가 있어야 주제를 읽을 수 있음
     try {
-      preflight = await preflightCheckPdf(buffer)
-      console.log(`PDF 사전점검: ${preflight.numPages}페이지, 평균 ${preflight.avgCharsPerPage.toFixed(0)}자/페이지, 스캔추정=${preflight.looksScanned}`)
-    } catch (e) {
-      console.warn('PDF 사전점검 실패(구조 문제일 수 있음), 그냥 진행:', e)
-      preflight = { numPages: 0, avgCharsPerPage: 999, looksScanned: false }
-    }
-
-    if (preflight.looksScanned) {
-      throw new InvalidPdfError(
-        `이 PDF는 텍스트를 인식할 수 없는 스캔 이미지로 보여요 (${preflight.numPages}페이지, ` +
-        `페이지당 평균 ${preflight.avgCharsPerPage.toFixed(0)}자). ` +
-        `OCR(문자 인식)을 거친 PDF로 다시 저장하거나, Google 드라이브에 업로드 후 ` +
-        `"Google Docs로 열기"로 텍스트를 추출한 뒤 다시 업로드해주세요.`
-      )
-    }
-
-    if (preflight.numPages > MAX_PAGES_SOFT) {
-      // 완전 차단하지는 않되, 실패 시 원인을 바로 알 수 있도록 로그에 강하게 남김
-      console.warn(`⚠️ 페이지 수 ${preflight.numPages}쪽 — 시간 초과 위험. 실패 시 과 단위 분할 업로드 권장`)
-    }
-
-    const base64 = buffer.toString('base64')
-    const genAI  = new GoogleGenerativeAI(getKey())
-
-    // 1단계: 목차 추출 (singleUnit이 지정되면 이 단계 자체를 건너뜀 —
-    // 목차 추출이 소제목을 별개 과로 오인하는 문제를 원천 차단)
-    let units: { unitNumber: number; title: string }[] = []
-
-    if (singleUnit?.unitNumber) {
-      console.log(`단일 과 모드: ${singleUnit.unitNumber}과 "${singleUnit.title}" — 목차 추출 생략`)
-      units = [buildSingleUnitToc(singleUnit.unitNumber, singleUnit.title || `${singleUnit.unitNumber}과`).units[0]]
-    } else {
-      const tocRaw  = await generateWithRetry(genAI, TABLE_OF_CONTENTS_PROMPT, base64, MODELS_TOC)
-      const tocText = tocRaw.replace(/```json|```/g, '').trim()
-      console.log('TOC raw:', tocRaw.slice(0, 200))
-
-      try {
-        const parsed = JSON.parse(tocText)
-        units = parsed.units ?? []
-      } catch {
-        console.error('TOC JSON 파싱 실패:', tocText.slice(0, 300))
-        throw new Error('목차 파싱 실패: Gemini 응답이 JSON 형식이 아닙니다')
+      const preflight = await preflightCheckPdf(buffer)
+      console.log(`지침서 사전점검: ${preflight.numPages}페이지, 평균 ${preflight.avgCharsPerPage.toFixed(0)}자/페이지`)
+      if (preflight.looksScanned) {
+        throw new InvalidPdfError(
+          `이 PDF는 텍스트를 인식할 수 없는 스캔 이미지로 보여요. ` +
+          `OCR을 거친 PDF로 다시 저장하거나 텍스트 파일로 정리해서 업로드해주세요.`
+        )
       }
+    } catch (e) {
+      if (e instanceof InvalidPdfError) throw e
+      console.warn('지침서 사전점검 실패(구조 문제일 수 있음), 그냥 진행:', e)
+    }
+
+    const base64   = buffer.toString('base64')
+
+    const genAI = new GoogleGenerativeAI(getKey())
+
+    // 1단계: 목차 추정
+    const tocRaw  = await generateWithRetry(genAI, SYLLABUS_TOC_PROMPT, base64, MODELS_TOC)
+    const tocText = tocRaw.replace(/```json|```/g, '').trim()
+
+    let units: { unitNumber: number; title: string }[] = []
+    try {
+      const parsed = JSON.parse(tocText)
+      units = parsed.units ?? []
+    } catch {
+      console.error('지침서 목차 파싱 실패:', tocText.slice(0, 300))
+      throw new Error('목차 추정 실패: Gemini 응답이 JSON 형식이 아닙니다')
     }
 
     if (!units.length) {
-      throw new InvalidPdfError(
-        '목차에서 과(Unit)를 찾을 수 없어요. PDF에 과 구분이 명확한지 확인해주세요.'
-      )
+      throw new Error('지침서에서 단원 구성을 추정하지 못했습니다')
     }
 
-    // 2단계: 과별 내용 추출
+    // 2단계: 단원별 내용 추정 생성
     const savedUnitIds: string[] = []
     for (const unit of units) {
       try {
-        const unitRaw  = await generateWithRetry(genAI, buildUnitPrompt(unit.unitNumber, unit.title), base64, MODELS_UNIT)
+        const unitRaw  = await generateWithRetry(
+          genAI, buildSyllabusUnitPrompt(unit.unitNumber, unit.title, level), base64, MODELS_UNIT
+        )
         const unitText = unitRaw.replace(/```json|```/g, '').trim()
 
         let unitData: Record<string, unknown> = {}
@@ -317,13 +260,14 @@ export async function POST(req: NextRequest) {
             listeningPoints: unitData.listeningPoints ?? [],
             writingTheme:    unitData.writingTheme    ?? '',
             manuallyEdited:  false,
+            aiGenerated:     true,          // ← 추정 생성 표시 (교재 파싱과 구분)
             parsedAt:        new Date(),
           })
         savedUnitIds.push(ref.id)
 
         await new Promise(r => setTimeout(r, 800))
       } catch (e) {
-        console.error(`Unit ${unit.unitNumber} 파싱 실패:`, e)
+        console.error(`Unit ${unit.unitNumber} 생성 실패:`, e)
       }
     }
 
@@ -332,13 +276,16 @@ export async function POST(req: NextRequest) {
       unitCount: savedUnitIds.length,
     })
 
-    return NextResponse.json({ success: true, unitCount: savedUnitIds.length })
+    return NextResponse.json({
+      success:   true,
+      unitCount: savedUnitIds.length,
+      note:      'AI가 지침서를 바탕으로 추정 생성한 내용이에요. 단원별 내용을 검토 후 사용해주세요.',
+    })
 
   } catch (e) {
-    console.error('Parse error:', e)
+    console.error('Syllabus generate error:', e)
     const isPdfIssue = e instanceof InvalidPdfError
-    const message = isPdfIssue ? e.message : '분석 실패'
-
+    const message = isPdfIssue ? e.message : '생성 실패'
     if (textbookId) {
       await adminDb.collection('textbooks').doc(textbookId)
         .update({ status: 'error', errorMessage: String(message) })
