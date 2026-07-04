@@ -1,28 +1,31 @@
 // types/user.ts
-export type Role = 'admin' | 'teacher' | 'student'
-export type UserStatus = 'pending' | 'active'
+export type UserRole   = 'student' | 'teacher' | 'admin'
+export type UserStatus = 'active' | 'inactive' | 'pending'
+
+export interface ChalkEvent {
+  amount:    number
+  expiresAt: unknown   // Firestore Timestamp
+  reason?:   string
+}
 
 export interface AppUser {
   uid:                string
   email:              string
   nameKr:             string
-  nameEn?:            string   // 여권 영문명 (학생만, 선택)
+  nameEn?:            string
   nickname:           string
-  studentIdHash?:     string   // 학번 SHA-256 해시 (학생만, 선택)
-  role:               Role
+  studentIdHash?:     string
+  role:               UserRole
   status:             UserStatus
   schoolId:           string
   semester:           string
   classId:            string
   sortOrder:          number
   freeWritingEnabled: boolean
-  createdAt:          Date
   loginType:          'email' | 'google'
-}
+  createdAt?:         Date
 
-export interface School {
-  id:        string
-  name:      string
-  semesters: string[]
-  classes:   Record<string, string[]>
+  // 유료 재화 (현재 미사용, 유료화 대비 — 쌤툴과 공유)
+  chalk?:       number
+  chalkEvents?: ChalkEvent[]
 }

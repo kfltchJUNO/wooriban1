@@ -73,10 +73,10 @@ function AccountSetup({ nameLabel, onSubmit, loading, error }: {
   loading:   boolean
   error:     string
 }) {
-  const [userId,  setUserId]  = useState('')
-  const [pw,      setPw]      = useState('')
-  const [pwConf,  setPwConf]  = useState('')
-  const [localErr,setLocalErr]= useState('')
+  const [userId,   setUserId]   = useState('')
+  const [pw,       setPw]       = useState('')
+  const [pwConf,   setPwConf]   = useState('')
+  const [localErr, setLocalErr] = useState('')
 
   const handleSubmit = () => {
     if (!userId.trim())  { setLocalErr('아이디를 입력해주세요.'); return }
@@ -128,15 +128,15 @@ function AccountSetup({ nameLabel, onSubmit, loading, error }: {
 }
 
 function StudentRegister({ onBack, router }: { onBack: () => void; router: ReturnType<typeof useRouter> }) {
-  const [step,     setStep]     = useState<Step>(1)
-  const [nameEn,   setNameEn]   = useState('')
-  const [studentId,setStudentId]= useState('')
-  const [school,   setSchool]   = useState('')
-  const [semester, setSemester] = useState('')
-  const [classId,  setClassId]  = useState('')
-  const [roster,   setRoster]   = useState<RosterEntry | null>(null)
-  const [err,      setErr]      = useState('')
-  const [loading,  setLoading]  = useState(false)
+  const [step,      setStep]      = useState<Step>(1)
+  const [nameEn,    setNameEn]    = useState('')
+  const [studentId, setStudentId] = useState('')
+  const [school,    setSchool]    = useState('')
+  const [semester,  setSemester]  = useState('')
+  const [classId,   setClassId]   = useState('')
+  const [roster,    setRoster]    = useState<RosterEntry | null>(null)
+  const [err,       setErr]       = useState('')
+  const [loading,   setLoading]   = useState(false)
 
   // 학교 목록 동적 로드
   const [schools,   setSchools]   = useState<SchoolData[]>([])
@@ -184,10 +184,7 @@ function StudentRegister({ onBack, router }: { onBack: () => void; router: Retur
     setLoading(true); setErr('')
     try {
       const hash   = await hashStudentId(studentId)
-      console.log('[Verify] school:', school, 'semester:', semester, 'classId:', classId)
-      console.log('[Verify] nameEn:', nameEn.trim().toUpperCase(), 'hash:', hash)
       const result = await verifyRosterEntry(school, semester, classId, nameEn.trim().toUpperCase(), hash)
-      console.log('[Verify] result:', result)
       if (!result.valid) { setErr(result.error ?? '인증 실패'); return }
       setRoster(result.entry ?? null)
       setStep(2)
@@ -216,14 +213,13 @@ function StudentRegister({ onBack, router }: { onBack: () => void; router: Retur
         status:             'active',
         schoolId:           school,
         semester,
-        classId:            roster?.classId ?? classId,
+        classId:            roster?.classId ?? classId,   // roster 우선 (불일치 방지)
         sortOrder:          999,
         freeWritingEnabled: true,
         loginType:          'email',
       })
       if (roster) await linkRosterToUid(roster.id, uid)
-      // Firestore 반영 대기
-      await new Promise(r => setTimeout(r, 800))
+      await new Promise(r => setTimeout(r, 800))  // Firestore 반영 대기
       router.push('/student')
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '오류'
@@ -324,22 +320,38 @@ function TeacherRegister({ onBack, router }: { onBack: () => void; router: Retur
   const handleCreate = async (userId: string, pw: string) => {
     if (!codeInfo) return
     setLoading(true); setErr('')
+    let createdUid: string | null = null
     try {
       const email = `${userId}@wooriban.app`
       const cred  = await createUserWithEmailAndPassword(auth, email, pw)
-      const uid   = cred.user.uid
+      createdUid  = cred.user.uid
       await updateProfile(cred.user, { displayName: nameKr })
-      await createUser(uid, {
+
+      // ① 코드 사용 처리를 users 문서 생성보다 먼저 —
+      //    실패하면 users 문서를 만들지 않아 같은 코드로 계정만 늘어나는 문제 방지
+      await useTeacherCode(code.trim().toUpperCase(), createdUid)
+
+      // ② users 문서 생성 (chalk 필드 포함 — 유료화 대비)
+      await createUser(createdUid, {
         email, nameKr, nickname: nameKr,
         role: 'teacher', status: 'active',
         schoolId: codeInfo.schoolId, semester: codeInfo.semester, classId: codeInfo.classId,
         sortOrder: 0, freeWritingEnabled: false, loginType: 'email',
+        chalk: 0,
+        chalkEvents: [],
       })
-      await useTeacherCode(code.trim().toUpperCase(), uid)
+
+      await new Promise(r => setTimeout(r, 800))  // Firestore 반영 대기
       router.push('/teacher')
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '오류'
-      setErr(msg.includes('email-already-in-use') ? '이미 사용 중인 아이디예요.' : msg)
+      if (msg.includes('email-already-in-use')) {
+        setErr('이미 사용 중인 아이디예요.')
+      } else if (createdUid) {
+        setErr('가입 처리 중 문제가 생겼어요. 같은 아이디/비밀번호로 로그인을 시도해보시고, 안 되면 관리자에게 문의해주세요.')
+      } else {
+        setErr(msg)
+      }
     } finally { setLoading(false) }
   }
 
@@ -364,7 +376,7 @@ function TeacherRegister({ onBack, router }: { onBack: () => void; router: Retur
           <div>
             <label className="text-xs font-semibold text-gray-500 block mb-1">선생님 코드 <span className="text-red-400">*</span></label>
             <input value={code} onChange={e => setCode(e.target.value.toUpperCase())}
-              placeholder="예: DG26SU021001"
+              placeholder="예: DG26SU300101"
               className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono tracking-widest focus:outline-none focus:border-indigo-400" />
             <p className="text-[11px] text-gray-400 mt-1">관리자에게 받은 12자리 코드</p>
           </div>

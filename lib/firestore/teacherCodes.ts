@@ -1,122 +1,125 @@
 // lib/firestore/teacherCodes.ts
 import {
   collection, doc, getDoc, getDocs, setDoc,
-  updateDoc, query, where, serverTimestamp,
+  updateDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '@/firebase/firebaseConfig'
 
 // ── 코드 체계 ─────────────────────────────────────────────────────
-// 형식: {학교}{연도2}{학기2}{급수2}{반2}{선생님번호2}
-// 예:   DG   26    SU    02    10    01  → DG26SU021001
+// 형식: {학교2}{연도2}{학기2}{급수2}{반2}{선생님번호2}
+// 예:   DG   26    SU    30    01    01  → DG26SU300101
+// 학교 코드는 schools 컬렉션 문서 ID(소문자)의 대문자 버전 — 하드코딩 없음
 
-// schools 문서 ID = 코드 소문자 (dk, dg)
-// SchoolManager에서 addSchool 시 code.toLowerCase()를 문서 ID로 사용
-const SCHOOL_MAP: Record<string, string> = {
-  DG: 'dg',
-  DK: 'dk',
-}
-
-const SCHOOL_LABEL: Record<string, string> = {
-  DG: '동국대',
-  DK: '단국대',
-}
-
-const SEASON_MAP: Record<string, string> = {
+export const SEASON_MAP: Record<string, string> = {
   SP: 'spring',
   SU: 'summer',
   FA: 'fall',
   WI: 'winter',
 }
 
-const SEASON_LABEL: Record<string, string> = {
+export const SEASON_LABEL: Record<string, string> = {
   SP: '봄',
   SU: '여름',
   FA: '가을',
   WI: '겨울',
 }
 
+// spring → SP 역변환
+export const SEASON_CODE: Record<string, string> = Object.fromEntries(
+  Object.entries(SEASON_MAP).map(([k, v]) => [v, k])
+)
+
 export interface TeacherCodeInfo {
-  code:      string
-  schoolId:  string
-  schoolLabel: string
-  semester:  string
+  code:          string
+  schoolId:      string
+  schoolLabel:   string
+  semester:      string
   semesterLabel: string
-  classId:   string
-  classLabel: string
-  teacherNo: number
-  used:      boolean
-  usedBy:    string | null
-  createdAt: unknown
+  classId:       string
+  classLabel:    string
+  teacherNo:     number
+  used:          boolean
+  usedBy:        string | null
+  createdAt:     unknown
 }
 
-// ── 코드 생성 ─────────────────────────────────────────────────────
-export function generateTeacherCode(
-  schoolCode: string,   // DG, DK
-  year: string,         // 26
-  seasonCode: string,   // SP, SU, FA, WI
-  level: number,        // 2
-  classNum: number,     // 10
-  teacherNo: number,    // 1, 2, 3
-): string {
+// ── classId → 코드 숫자 변환 ─────────────────────────────────────
+// level30-6 → {level: "30", class: "06"}
+// grade2-3  → {level: "02", class: "03"}
+// advanced-6 → {level: "30", class: "06"}  (초10/중20/고30 매핑)
+// class-5   → {level: "00", class: "05"}
+export function classIdToDigits(classId: string): { level: string; cls: string } | null {
+  const parts = classId.split('-')
+  const num   = parseInt(parts[1] ?? '')
+  if (isNaN(num) || num < 1 || num > 99) return null
+
+  const cls = String(num).padStart(2, '0')
+
+  if (parts[0].startsWith('level')) {
+    const lv = parseInt(parts[0].replace('level', ''))
+    if (isNaN(lv) || lv < 0 || lv > 99) return null
+    return { level: String(lv).padStart(2, '0'), cls }
+  }
+  if (parts[0].startsWith('grade')) {
+    const g = parseInt(parts[0].replace('grade', ''))
+    if (isNaN(g) || g < 0 || g > 99) return null
+    return { level: String(g).padStart(2, '0'), cls }
+  }
+  const NAMED: Record<string, string> = { beginner: '10', intermediate: '20', advanced: '30' }
+  if (NAMED[parts[0]]) return { level: NAMED[parts[0]], cls }
+  if (parts[0] === 'class') return { level: '00', cls }
+  return null
+}
+
+// ── 코드 문자열 생성 (schools 데이터 기반) ───────────────────────
+export function buildTeacherCode(
+  schoolId:  string,   // schools 문서 ID (소문자, 예: "dk")
+  semester:  string,   // "26-summer"
+  classId:   string,   // "level30-6" — schools 컬렉션에 등록된 값 그대로
+  teacherNo: number,
+): string | null {
+  // 학교 코드: 문서 ID 대문자 (2자 영문만 허용)
+  const schoolCode = schoolId.toUpperCase()
+  if (!/^[A-Z]{2}$/.test(schoolCode)) return null
+
+  const [yy, seasonKey] = semester.split('-')
+  if (!/^\d{2}$/.test(yy ?? '')) return null
+  const seasonCode = SEASON_CODE[seasonKey ?? '']
+  if (!seasonCode) return null
+
+  const digits = classIdToDigits(classId)
+  if (!digits) return null
+
+  if (teacherNo < 1 || teacherNo > 99) return null
+
   return [
-    schoolCode,
-    year.slice(-2),
-    seasonCode,
-    String(level).padStart(2, '0'),
-    String(classNum).padStart(2, '0'),
+    schoolCode, yy, seasonCode,
+    digits.level, digits.cls,
     String(teacherNo).padStart(2, '0'),
   ].join('')
 }
 
-// ── 코드 파싱 ─────────────────────────────────────────────────────
-export function parseTeacherCode(code: string): {
-  schoolId: string
-  schoolLabel: string
-  semester: string
-  semesterLabel: string
-  classId: string
-  classLabel: string
-  teacherNo: number
-} | null {
-  if (code.length !== 12) return null
-
-  const schoolCode = code.slice(0, 2)
-  const year       = '20' + code.slice(2, 4)
-  const seasonCode = code.slice(4, 6)
-  const levelNum   = parseInt(code.slice(6, 8))
-  const classNum   = parseInt(code.slice(8, 10))
-  const teacherNo  = parseInt(code.slice(10, 12))
-
-  if (!SCHOOL_MAP[schoolCode] || !SEASON_MAP[seasonCode]) return null
-  if (isNaN(levelNum) || isNaN(classNum) || isNaN(teacherNo)) return null
-
-  const schoolId    = SCHOOL_MAP[schoolCode]
-  const schoolLabel = SCHOOL_LABEL[schoolCode]
-  const seasonKey   = SEASON_MAP[seasonCode]
-  const semester    = `${year.slice(2)}-${seasonKey}`
-  const semesterLabel = `20${code.slice(2,4)}년 ${SEASON_LABEL[seasonCode]}`
-
-  // 10=초급, 20=중급, 30=고급, 1~6=N급
-  const LEVEL_LABEL: Record<number, string> = {
-    10: '초급', 20: '중급', 30: '고급',
-  }
-  const levelLabel = LEVEL_LABEL[levelNum] ?? `${levelNum}급`
-  const classId    = `level${levelNum}-${classNum}`
-  const classLabel = `${levelLabel} ${classNum}반`
-
-  return { schoolId, schoolLabel, semester, semesterLabel, classId, classLabel, teacherNo }
-}
-
 // ── Firestore CRUD ────────────────────────────────────────────────
-export async function saveTeacherCode(code: string, info: ReturnType<typeof parseTeacherCode>) {
-  if (!info) throw new Error('유효하지 않은 코드')
-  await setDoc(doc(db, 'teacherCodes', code), {
+
+/**
+ * 코드 저장 — 이미 존재하면 스킵 (중복 생성/덮어쓰기 방지)
+ */
+export async function saveTeacherCode(
+  code: string,
+  info: Omit<TeacherCodeInfo, 'code' | 'used' | 'usedBy' | 'createdAt'>,
+): Promise<'created' | 'exists'> {
+  const ref  = doc(db, 'teacherCodes', code)
+  const snap = await getDoc(ref)
+  if (snap.exists()) return 'exists'
+
+  await setDoc(ref, {
     code,
     ...info,
     used:      false,
     usedBy:    null,
     createdAt: serverTimestamp(),
   })
+  return 'created'
 }
 
 export async function validateTeacherCode(code: string): Promise<{
@@ -138,4 +141,12 @@ export async function useTeacherCode(code: string, uid: string) {
 export async function getAllTeacherCodes(): Promise<TeacherCodeInfo[]> {
   const snap = await getDocs(collection(db, 'teacherCodes'))
   return snap.docs.map(d => d.data() as TeacherCodeInfo)
+}
+
+export async function deleteTeacherCode(code: string) {
+  await deleteDoc(doc(db, 'teacherCodes', code))
+}
+
+export async function resetTeacherCode(code: string) {
+  await updateDoc(doc(db, 'teacherCodes', code), { used: false, usedBy: null })
 }
