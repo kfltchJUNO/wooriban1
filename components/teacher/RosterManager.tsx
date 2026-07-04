@@ -311,17 +311,17 @@ export default function RosterManager({ schoolId: rawSchoolId, semester, classId
             <div className="flex-1 min-w-[130px]">
               <label className="text-xs font-bold text-gray-400 block mb-1">여권 영문명 *</label>
               <input value={form.nameEn} onChange={e => setForm(f => ({ ...f, nameEn: e.target.value.toUpperCase() }))}
-                placeholder="JUNHO OH" className={inputCls} />
+                placeholder="NGUYEN VAN AN" className={inputCls} />
             </div>
             <div className="w-28">
               <label className="text-xs font-bold text-gray-400 block mb-1">한글명 *</label>
               <input value={form.nameKr} onChange={e => setForm(f => ({ ...f, nameKr: e.target.value }))}
-                placeholder="오준호" className={inputCls} />
+                placeholder="응우옌반안" className={inputCls} />
             </div>
             <div className="w-28">
-              <label className="text-xs font-bold text-gray-400 block mb-1">별명</label>
+              <label className="text-xs font-bold text-gray-400 block mb-1">별명 <span className="font-normal text-gray-300">(부르는 이름)</span></label>
               <input value={form.nickname} onChange={e => setForm(f => ({ ...f, nickname: e.target.value }))}
-                placeholder="(선택)" className={inputCls} />
+                placeholder="안안" className={inputCls} />
             </div>
             <div className="w-32">
               <label className="text-xs font-bold text-gray-400 block mb-1">학번 *</label>
@@ -360,7 +360,7 @@ export default function RosterManager({ schoolId: rawSchoolId, semester, classId
             </p>
             <textarea value={bulkText}
               onChange={e => { setBulkText(e.target.value); parseBulkText(e.target.value) }}
-              placeholder={'JUNHO OH\t오준호\t준호\t20261234\nMINJI KIM\t김민지\t\t20261235'}
+              placeholder={'NGUYEN VAN AN\t응우옌반안\t안안\t20261234\nSARAH JOHNSON\t사라존슨\t\t20261235'}
               className="w-full min-h-[100px] border border-gray-200 rounded-xl p-3 text-sm font-mono focus:outline-none focus:border-indigo-400" />
             {bulkPreview.length > 0 && (
               <BulkPreviewTable rows={bulkPreview} onSubmit={() => handleBulkSubmit(bulkPreview)} onCancel={() => {

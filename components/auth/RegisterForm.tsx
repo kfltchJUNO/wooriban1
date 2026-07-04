@@ -266,7 +266,7 @@ function StudentRegister({ onBack, router }: { onBack: () => void; router: Retur
           <div>
             <label className="text-xs font-semibold text-gray-500 block mb-1">여권 영문명 <span className="text-red-400">*</span></label>
             <input value={nameEn} onChange={e => setNameEn(e.target.value.toUpperCase())}
-              placeholder="예: JUNHO OH"
+              placeholder="예: NGUYEN VAN AN"
               className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-400" />
             <p className="text-[11px] text-gray-400 mt-1">여권에 표기된 영문 성명</p>
           </div>
@@ -370,7 +370,7 @@ function TeacherRegister({ onBack, router }: { onBack: () => void; router: Retur
           <div>
             <label className="text-xs font-semibold text-gray-500 block mb-1">이름 <span className="text-red-400">*</span></label>
             <input value={nameKr} onChange={e => setNameKr(e.target.value)}
-              placeholder="예: 오준호"
+              placeholder="예: 김민지"
               className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-400" />
           </div>
           <div>
