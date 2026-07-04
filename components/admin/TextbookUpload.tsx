@@ -2,10 +2,11 @@
 
 'use client'
 import { useState } from 'react'
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytesResumable } from 'firebase/storage'
 import { storage } from '@/firebase/firebaseConfig'
 import { createTextbook } from '@/lib/firestore/textbooks'
 import { useAuth } from '@/lib/auth/authContext'
+import type { Textbook } from '@/types/textbook'
 
 interface Props {
   onUploaded: () => void
@@ -22,72 +23,97 @@ const STUDENT_LEVELS = [
 export default function TextbookUpload({ onUploaded }: Props) {
   const { appUser } = useAuth()
   const [sourceType, setSourceType] = useState<SourceType>('textbook')
-  const [file, setFile]             = useState<File | null>(null)
+  const [files, setFiles]           = useState<File[]>([])   // 여러 파일 지원
   const [title, setTitle]           = useState('')
   const [level, setLevel]           = useState('5A')          // 교재 급수 표기 (기존 유지)
   const [studentLevel, setStudentLevel] = useState('중급')     // 지침서 모드 전용: 생성 난이도
-  const [isSingleUnit, setIsSingleUnit] = useState(false)      // 이 파일이 이미 1개 과 분량인지
+  const [isSingleUnit, setIsSingleUnit] = useState(false)      // 이 파일들이 이미 1개 과 분량인지
   const [unitNumber, setUnitNumber]     = useState('')
   const [unitTitle, setUnitTitle]       = useState('')
   const [progress, setProgress]     = useState(0)
   const [phase, setPhase]           = useState<'idle' | 'uploading' | 'parsing' | 'done' | 'error'>('idle')
   const [errorMsg, setErrorMsg]     = useState('')
 
+  const inputDisabled = phase !== 'idle'
+
   const handleSourceChange = (type: SourceType) => {
-    if (phase !== 'idle') return
+    if (inputDisabled) return
     setSourceType(type)
   }
 
+  const handleFilesSelected = (fileList: FileList | null) => {
+    if (!fileList) return
+    const newFiles = Array.from(fileList)
+    setFiles(prev => [...prev, ...newFiles])
+  }
+
+  const removeFile = (idx: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  const totalSizeMB = files.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024
+
   const handleUpload = async () => {
-    if (!file || !title || !appUser) return
+    if (files.length === 0 || !title || !appUser) return
     setPhase('uploading')
     setProgress(0)
 
     try {
-      // 1. Firebase Storage에 PDF 업로드
-      const storagePath = `textbooks/${Date.now()}_${file.name}`
-      const storageRef  = ref(storage, storagePath)
-      const uploadTask  = uploadBytesResumable(storageRef, file)
+      // 1. Firebase Storage에 파일들을 순서대로 업로드
+      const storagePaths: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const storagePath = `textbooks/${Date.now()}_${i}_${file.name}`
+        const storageRef  = ref(storage, storagePath)
+        const uploadTask  = uploadBytesResumable(storageRef, file)
 
-      await new Promise<void>((resolve, reject) => {
-        uploadTask.on(
-          'state_changed',
-          snap => setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 50)),
-          reject,
-          () => resolve()
-        )
-      })
+        await new Promise<void>((resolve, reject) => {
+          uploadTask.on(
+            'state_changed',
+            snap => {
+              // 전체 진행률 중 이 파일이 차지하는 구간만큼만 반영 (업로드 단계는 전체의 50%까지)
+              const fileProgress = snap.bytesTransferred / snap.totalBytes
+              const overall = ((i + fileProgress) / files.length) * 50
+              setProgress(Math.round(overall))
+            },
+            reject,
+            () => resolve()
+          )
+        })
+        storagePaths.push(storagePath)
+      }
 
       setProgress(55)
 
-      // 2. Firestore에 교재 메타데이터 생성
+      // 2. Firestore에 교재 메타데이터 생성 (파일 여러 개 → 배열로 저장)
       const textbookId = await createTextbook({
         title,
         level,
-        storageUrl:      storagePath,
+        storageUrl:      storagePaths[0],   // 구버전 화면 호환용 대표 경로
+        storageUrls:     storagePaths,      // 실제 분석에 쓰이는 전체 목록
         status:          'parsing',
         unitCount:       0,
         assignedClasses: [],
         uploadedBy:      appUser.uid,
-        sourceType,   // 'textbook' | 'syllabus' — 목록/단원 화면에서 구분 표시용
-      } as Parameters<typeof createTextbook>[0])
+        sourceType,
+      } satisfies Omit<Textbook, 'id'>)
 
       setProgress(60)
       setPhase('parsing')
 
-      // 3. 방식에 따라 다른 API 호출
+      // 3. 방식에 따라 다른 API 호출 (여러 파일 경로를 배열로 전달)
       const endpoint = sourceType === 'textbook'
         ? '/api/textbook/parse'
         : '/api/textbook/generate-from-syllabus'
 
       const body = sourceType === 'textbook'
         ? {
-            textbookId, storageUrl: storagePath,
+            textbookId, storageUrls: storagePaths,
             ...(isSingleUnit && unitNumber
               ? { singleUnit: { unitNumber: Number(unitNumber), title: unitTitle } }
               : {}),
           }
-        : { textbookId, storageUrl: storagePath, level: studentLevel }
+        : { textbookId, storageUrls: storagePaths, level: studentLevel }
 
       const res = await fetch(endpoint, {
         method:  'POST',
@@ -112,7 +138,7 @@ export default function TextbookUpload({ onUploaded }: Props) {
 
   const PHASE_LABEL: Record<typeof phase, string> = {
     idle:      '',
-    uploading: `PDF 업로드 중... ${progress}%`,
+    uploading: `파일 업로드 중... ${progress}% (${files.length}개)`,
     parsing:   sourceType === 'textbook'
       ? 'Gemini AI가 교재를 분석 중이에요... (1~3분 소요)'
       : 'Gemini AI가 지침서를 바탕으로 학습 내용을 만드는 중이에요... (1~3분 소요)',
@@ -121,8 +147,6 @@ export default function TextbookUpload({ onUploaded }: Props) {
       : '✅ 생성 완료! AI가 만든 내용이니 검토 후 사용해주세요.',
     error:     errorMsg,
   }
-
-  const inputDisabled = phase !== 'idle'
 
   return (
     <div className="space-y-4">
@@ -188,10 +212,11 @@ export default function TextbookUpload({ onUploaded }: Props) {
                 disabled={inputDisabled}
                 className="mt-0.5 w-4 h-4 accent-indigo-600 cursor-pointer flex-shrink-0" />
               <div>
-                <p className="text-sm font-bold text-gray-800">이 파일은 한 과 분량이에요</p>
+                <p className="text-sm font-bold text-gray-800">이 파일(들)은 한 과 분량이에요</p>
                 <p className="text-[11px] text-gray-400 mt-0.5">
                   과 단위로 나눠서 업로드할 때 체크하세요. 목차 자동 분석을 건너뛰어서
                   소제목(어휘/문법/듣기 등)을 별도 과로 잘못 나누는 문제를 방지해요.
+                  본문 파일과 듣기대본 파일처럼 <b>같은 과의 자료를 여러 개 첨부</b>할 수도 있어요.
                 </p>
               </div>
             </label>
@@ -218,50 +243,76 @@ export default function TextbookUpload({ onUploaded }: Props) {
           </div>
         </div>
       ) : (
-        <div>
-          <label className="text-xs font-bold text-gray-400 mb-1.5 block">생성할 학습자 수준</label>
-          <div className="grid grid-cols-3 gap-2">
-            {STUDENT_LEVELS.map(l => (
-              <button key={l.value} type="button" onClick={() => !inputDisabled && setStudentLevel(l.value)}
-                disabled={inputDisabled}
-                className={`py-2.5 rounded-xl border-2 text-sm font-bold transition-colors disabled:opacity-50 ${
-                  studentLevel === l.value ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-500'
-                }`}>
-                {l.label}
-              </button>
-            ))}
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-bold text-gray-400 mb-1.5 block">생성할 학습자 수준</label>
+            <div className="grid grid-cols-3 gap-2">
+              {STUDENT_LEVELS.map(l => (
+                <button key={l.value} type="button" onClick={() => !inputDisabled && setStudentLevel(l.value)}
+                  disabled={inputDisabled}
+                  className={`py-2.5 rounded-xl border-2 text-sm font-bold transition-colors disabled:opacity-50 ${
+                    studentLevel === l.value ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-500'
+                  }`}>
+                  {l.label}
+                </button>
+              ))}
+            </div>
           </div>
+          <p className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+            💡 지침서가 주차별로 여러 파일로 나뉘어 있으면 아래에서 여러 개를 한 번에 선택하세요.
+            모두 같은 커리큘럼으로 간주해서 통합 분석해요.
+          </p>
         </div>
       )}
 
+      {/* 파일 선택 (다중 지원) */}
       <div>
-        <label className="text-xs font-bold text-gray-400 mb-1.5 block">PDF 파일</label>
+        <label className="text-xs font-bold text-gray-400 mb-1.5 block">
+          PDF 파일 {files.length > 0 && <span className="text-indigo-500">({files.length}개, 총 {totalSizeMB.toFixed(1)}MB)</span>}
+        </label>
         <div
           className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-colors
-            ${file ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 hover:border-indigo-300'}`}
+            ${files.length > 0 ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 hover:border-indigo-300'}`}
           onClick={() => document.getElementById('pdf-input')?.click()}
         >
           <input
-            id="pdf-input" type="file" accept=".pdf"
+            id="pdf-input" type="file" accept=".pdf" multiple
             className="hidden"
-            onChange={e => setFile(e.target.files?.[0] ?? null)}
+            onChange={e => { handleFilesSelected(e.target.files); e.target.value = '' }}
             disabled={inputDisabled}
           />
-          {file ? (
+          {files.length > 0 ? (
             <div>
               <div className="text-2xl mb-1">📄</div>
-              <div className="font-bold text-sm text-indigo-700">{file.name}</div>
-              <div className="text-xs text-gray-400 mt-0.5">{(file.size / 1024 / 1024).toFixed(1)} MB</div>
+              <div className="text-sm text-indigo-700 font-bold">클릭해서 파일 추가</div>
+              <div className="text-[11px] text-gray-400 mt-0.5">여러 파일을 함께 첨부해 분석할 수 있어요</div>
             </div>
           ) : (
             <div>
               <div className="text-3xl mb-2">📂</div>
               <div className="text-sm text-gray-500">
-                {sourceType === 'textbook' ? '교재 PDF 파일을 클릭해서 선택하세요' : '지침서 PDF 파일을 클릭해서 선택하세요'}
+                {sourceType === 'textbook' ? '교재 PDF 파일을 클릭해서 선택하세요 (여러 개 가능)' : '지침서 PDF 파일을 클릭해서 선택하세요 (여러 개 가능)'}
               </div>
             </div>
           )}
         </div>
+
+        {/* 선택된 파일 목록 */}
+        {files.length > 0 && (
+          <div className="mt-2 space-y-1.5">
+            {files.map((f, idx) => (
+              <div key={idx} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                <span className="text-sm flex-shrink-0">📄</span>
+                <span className="text-xs text-gray-700 flex-1 min-w-0 truncate">{f.name}</span>
+                <span className="text-[11px] text-gray-400 flex-shrink-0">{(f.size / 1024 / 1024).toFixed(1)}MB</span>
+                {!inputDisabled && (
+                  <button onClick={() => removeFile(idx)}
+                    className="text-gray-300 hover:text-red-500 flex-shrink-0 text-sm leading-none">✕</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 진행 상태 */}
@@ -282,7 +333,7 @@ export default function TextbookUpload({ onUploaded }: Props) {
       {(phase === 'idle' || phase === 'error') && (
         <button
           onClick={phase === 'error' ? () => setPhase('idle') : handleUpload}
-          disabled={!file || !title || (isSingleUnit && (!unitNumber || !unitTitle))}
+          disabled={files.length === 0 || !title || (isSingleUnit && (!unitNumber || !unitTitle))}
           className={`w-full text-white font-bold py-3.5 rounded-xl text-sm disabled:opacity-50 transition-colors ${
             sourceType === 'syllabus' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700'
           }`}

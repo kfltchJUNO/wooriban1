@@ -1,9 +1,11 @@
 // 📁 app/api/textbook/generate-from-syllabus/route.ts
 // 실제 교재 PDF가 없을 때, 지침서(커리큘럼 개요) PDF만으로 단원 초안을 생성
 // 교재 parse와 차이: "추출"이 아니라 "추정 생성" → 모든 unit에 aiGenerated: true 표시
+// 여러 파일 업로드 지원: 주차별로 나뉜 지침서 여러 개를 함께 첨부해 통합 분석 가능
 import { NextRequest, NextResponse } from 'next/server'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenerativeAI, Part } from '@google/generative-ai'
 import { adminDb, adminStorage } from '@/firebase/firebaseAdmin'
+
 // pdf-parse: 설치 버전의 export 형태가 불명확해 동적 import + any 캐스팅으로 처리
 async function loadPdfParse(): Promise<(buf: Buffer) => Promise<{ numpages: number; text: string }>> {
   const mod = await import('pdf-parse') as unknown as Record<string, unknown>
@@ -15,7 +17,7 @@ class InvalidPdfError extends Error {
   constructor(detail: string) { super(detail); this.name = 'InvalidPdfError' }
 }
 
-// ⚠️ 실사용 근거로 조정된 값 (parse route와 동일 원칙 — 상세 설명은 그쪽 주석 참고)
+// ⚠️ 실사용 근거로 조정된 값 (parse route와 동일 원칙, 다중 파일은 합산 기준)
 const MAX_SIZE_MB    = 48
 const MAX_PAGES_HARD = 70
 const MAX_PAGES_SOFT = 50
@@ -26,14 +28,13 @@ async function preflightCheckPdf(buffer: Buffer) {
   const numPages = parsed.numpages || 1
   const textLength = parsed.text.replace(/\s+/g, '').length
   const avgCharsPerPage = textLength / numPages
-  return { numPages, avgCharsPerPage, looksScanned: avgCharsPerPage < 25 }  // 참고용, 차단 근거 아님
+  return { numPages, avgCharsPerPage, looksScanned: avgCharsPerPage < 25 }
 }
 
 const API_KEYS = [process.env.GEMINI_KEY_1!, process.env.GEMINI_KEY_2].filter(Boolean) as string[]
 let keyIdx = 0
 const getKey = () => { const k = API_KEYS[keyIdx % API_KEYS.length]; keyIdx++; return k }
 
-// ── 작업 종류별 모델 우선순위 (parse route와 동일 원칙) ──────────
 const MODELS_TOC = [
   'gemini-2.5-flash-lite',
   'gemini-3.1-flash-lite',
@@ -52,26 +53,27 @@ const MODELS_UNIT = [
 async function generateWithRetry(
   genAI: GoogleGenerativeAI,
   prompt: string,
-  pdfBase64: string,
+  pdfBase64List: string[],
   models: string[],
   maxRetries = 5
 ): Promise<string> {
   let modelIdx = 0
   const getModel = () => models[modelIdx % models.length]
 
+  const fileParts: Part[] = pdfBase64List.map(data => ({
+    inlineData: { mimeType: 'application/pdf', data },
+  }))
+
   for (let i = 0; i < maxRetries; i++) {
     const currentModel = getModel()
     try {
-      console.log(`[Gemini] 시도 ${i + 1}/${maxRetries} - 모델: ${currentModel}`)
+      console.log(`[Gemini] 시도 ${i + 1}/${maxRetries} - 모델: ${currentModel} (파일 ${pdfBase64List.length}개)`)
       const model  = genAI.getGenerativeModel({
         model: currentModel,
         generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
         // temperature는 파싱(0.1)보다 높게 — 지침서만 보고 "만들어내야" 하므로
       })
-      const result = await model.generateContent([
-        prompt,
-        { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
-      ])
+      const result = await model.generateContent([prompt, ...fileParts])
       const text = result.response.text()
       const trimmed = text.replace(/```json|```/g, '').trim()
       if (!trimmed.endsWith('}') && !trimmed.endsWith(']')) {
@@ -100,10 +102,14 @@ async function generateWithRetry(
 
 // ── 1단계: 지침서에서 단원 목차 "추정" ────────────────────────────
 const SYLLABUS_TOC_PROMPT = `
-이 파일은 정식 교재가 아니라 강의 지침서(커리큘럼 개요, 수업 계획서 등)입니다.
+이 파일(들)은 정식 교재가 아니라 강의 지침서(커리큘럼 개요, 수업 계획서 등)입니다.
+파일이 여러 개 첨부됐다면 여러 주차/파트로 나뉜 같은 커리큘럼의 일부로 간주하고
+전부 종합해서 분석해줘.
+
 문서에 나온 주차별/과별 주제를 바탕으로 단원(Unit) 목록을 정리해줘.
 문서에 "1과", "1주차", "Week 1" 등으로 구분돼 있으면 그 구분을 그대로 따르고,
 구분이 불명확하면 문서 전체를 하나의 흐름으로 보고 자연스러운 단위로 나눠줘.
+여러 파일에 걸쳐 같은 주제/과가 반복되면 1개로 합쳐줘.
 
 다른 텍스트 없이 JSON만 응답해:
 {
@@ -117,7 +123,7 @@ const SYLLABUS_TOC_PROMPT = `
 // ── 2단계: 단원별 학습 내용 "추정 생성" ───────────────────────────
 function buildSyllabusUnitPrompt(unitNumber: number, unitTitle: string, level: string) {
   return `
-이 파일은 정식 교재가 아니라 강의 지침서입니다.
+이 파일(들)은 정식 교재가 아니라 강의 지침서입니다.
 ${unitNumber}과 "${unitTitle}"라는 주제에 맞춰, 학습자 수준(${level})에 적합한
 어휘·문법·관용어를 네가 직접 구성해줘. 지침서에 구체적 예문이나 단어가 없다면
 주제에 맞게 합리적으로 만들어내되, 실제 한국어 교육 현장에서 쓰이는 자연스러운
@@ -164,62 +170,73 @@ function extractStoragePath(storageUrl: string): string {
 
 export async function POST(req: NextRequest) {
   let textbookId = ''
-  let storageUrl = ''
 
   try {
     const body = await req.json()
     textbookId = body.textbookId
-    storageUrl = body.storageUrl
+    // 여러 파일 업로드 지원: storageUrls(배열) 우선, 구버전 호환으로 storageUrl(단일)도 허용
+    const storageUrls: string[] = Array.isArray(body.storageUrls)
+      ? body.storageUrls
+      : body.storageUrl ? [body.storageUrl] : []
     const level: string = body.level ?? '중급'
 
-    if (!textbookId || !storageUrl) {
+    if (!textbookId || storageUrls.length === 0) {
       return NextResponse.json({ error: '필수 항목 누락' }, { status: 400 })
     }
 
     await adminDb.collection('textbooks').doc(textbookId).update({
       status: 'parsing',
-      sourceType: 'syllabus',   // ← 교재 파싱과 구분되는 표시
+      sourceType: 'syllabus',
     })
 
-    const storagePath = extractStoragePath(storageUrl)
     const bucket = adminStorage.bucket()
-    const file   = bucket.file(storagePath)
 
-    // 용량 사전 점검 (근거는 parse route와 동일 — 46.6MB 성공/50.2MB 실패 사례 기준)
-    const [metadata] = await file.getMetadata()
-    const sizeMB = Number(metadata.size ?? 0) / 1024 / 1024
-    if (sizeMB > MAX_SIZE_MB) {
+    // 여러 파일 다운로드 + 합산 사전 점검
+    let totalSizeMB = 0
+    let totalPages  = 0
+    const buffers: Buffer[] = []
+
+    for (const url of storageUrls) {
+      const storagePath = extractStoragePath(url)
+      const file = bucket.file(storagePath)
+
+      const [metadata] = await file.getMetadata()
+      const sizeMB = Number(metadata.size ?? 0) / 1024 / 1024
+      totalSizeMB += sizeMB
+
+      const [buffer] = await file.download()
+      buffers.push(buffer)
+
+      try {
+        const pf = await preflightCheckPdf(buffer)
+        totalPages += pf.numPages
+        console.log(`  - ${storagePath}: ${sizeMB.toFixed(1)}MB, ${pf.numPages}페이지`)
+      } catch (e) {
+        console.warn(`  - ${storagePath}: 사전점검 실패, 페이지 수 집계 제외:`, e)
+      }
+    }
+
+    console.log(`지침서 합산: ${storageUrls.length}개 파일, ${totalSizeMB.toFixed(1)}MB, ${totalPages}페이지`)
+
+    if (totalSizeMB > MAX_SIZE_MB) {
       throw new InvalidPdfError(
-        `PDF 파일이 너무 커요 (${sizeMB.toFixed(1)}MB, 권장 ${MAX_SIZE_MB}MB 이하). 더 작은 파일로 나눠서 업로드해주세요.`
+        `첨부한 파일들의 총 용량이 너무 커요 (${totalSizeMB.toFixed(1)}MB, 권장 ${MAX_SIZE_MB}MB 이하). 파일 개수를 줄여주세요.`
       )
     }
-
-    const [buffer] = await file.download()
-
-    // 페이지 수 사전 점검 — 스캔 여부는 차단 근거로 쓰지 않음(스캔본 성공 사례 있음)
-    try {
-      const preflight = await preflightCheckPdf(buffer)
-      console.log(`지침서 사전점검: ${preflight.numPages}페이지, 평균 ${preflight.avgCharsPerPage.toFixed(0)}자/페이지, 스캔추정=${preflight.looksScanned}(참고용)`)
-      if (preflight.numPages > MAX_PAGES_HARD) {
-        throw new InvalidPdfError(
-          `페이지 수가 너무 많아요 (${preflight.numPages}페이지, 권장 ${MAX_PAGES_HARD}페이지 이하). ` +
-          `더 작은 단위로 나눠서 업로드해주세요.`
-        )
-      }
-      if (preflight.numPages > MAX_PAGES_SOFT) {
-        console.warn(`⚠️ 페이지 수 ${preflight.numPages}쪽 — 실패 위험 있음`)
-      }
-    } catch (e) {
-      if (e instanceof InvalidPdfError) throw e
-      console.warn('지침서 사전점검 실패(구조 문제일 수 있음), 그냥 진행:', e)
+    if (totalPages > MAX_PAGES_HARD) {
+      throw new InvalidPdfError(
+        `첨부한 파일들의 총 페이지 수가 너무 많아요 (${totalPages}페이지, 권장 ${MAX_PAGES_HARD}페이지 이하).`
+      )
+    }
+    if (totalPages > MAX_PAGES_SOFT) {
+      console.warn(`⚠️ 합산 페이지 수 ${totalPages}쪽 — 실패 위험 있음`)
     }
 
-    const base64   = buffer.toString('base64')
-
+    const base64List = buffers.map(b => b.toString('base64'))
     const genAI = new GoogleGenerativeAI(getKey())
 
     // 1단계: 목차 추정
-    const tocRaw  = await generateWithRetry(genAI, SYLLABUS_TOC_PROMPT, base64, MODELS_TOC)
+    const tocRaw  = await generateWithRetry(genAI, SYLLABUS_TOC_PROMPT, base64List, MODELS_TOC)
     const tocText = tocRaw.replace(/```json|```/g, '').trim()
 
     let units: { unitNumber: number; title: string }[] = []
@@ -235,12 +252,12 @@ export async function POST(req: NextRequest) {
       throw new Error('지침서에서 단원 구성을 추정하지 못했습니다')
     }
 
-    // 2단계: 단원별 내용 추정 생성
+    // 2단계: 단원별 내용 추정 생성 (모든 첨부 파일을 매 호출마다 함께 전달)
     const savedUnitIds: string[] = []
     for (const unit of units) {
       try {
         const unitRaw  = await generateWithRetry(
-          genAI, buildSyllabusUnitPrompt(unit.unitNumber, unit.title, level), base64, MODELS_UNIT
+          genAI, buildSyllabusUnitPrompt(unit.unitNumber, unit.title, level), base64List, MODELS_UNIT
         )
         const unitText = unitRaw.replace(/```json|```/g, '').trim()
 
@@ -265,7 +282,7 @@ export async function POST(req: NextRequest) {
             listeningPoints: unitData.listeningPoints ?? [],
             writingTheme:    unitData.writingTheme    ?? '',
             manuallyEdited:  false,
-            aiGenerated:     true,          // ← 추정 생성 표시 (교재 파싱과 구분)
+            aiGenerated:     true,
             parsedAt:        new Date(),
           })
         savedUnitIds.push(ref.id)

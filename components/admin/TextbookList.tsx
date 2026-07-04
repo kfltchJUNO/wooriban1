@@ -107,7 +107,7 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
     <div className="space-y-3">
       {textbooks.map(tb => {
         const sc = STATUS_LABEL[tb.status] ?? STATUS_LABEL.error
-        const isSyllabus = (tb as Textbook & { sourceType?: string }).sourceType === 'syllabus'
+        const isSyllabus = tb.sourceType === 'syllabus'
         return (
           <div key={tb.id} className="border border-gray-100 rounded-2xl p-4 hover:border-indigo-200 transition-colors">
             <div className="flex items-start justify-between gap-3">
@@ -184,7 +184,7 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
             </div>
             <div className="overflow-y-auto flex-1 p-6 space-y-2">
               {units.map(unit => {
-                const aiGen = (unit as TextbookUnit & { aiGenerated?: boolean }).aiGenerated
+                const aiGen = unit.aiGenerated
                 return (
                   <div key={unit.id} className="border border-gray-100 rounded-xl p-4 hover:border-indigo-200 transition-colors">
                     <div className="flex items-center justify-between mb-2">
