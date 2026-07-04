@@ -1,23 +1,20 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { getAllTextbooks, updateAssignedClasses, getUnits, updateUnit, deleteTextbook } from '@/lib/firestore/textbooks'
+import { getAllSchools } from '@/lib/firestore/schools'
 import { Textbook, TextbookUnit, AssignedClass } from '@/types/textbook'
 import { formatSchool, formatSemester, formatClass } from '@/lib/utils/classUtils'
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  uploading: { label: '업로드 중',    color: 'bg-blue-100 text-blue-700'   },
-  parsing:   { label: 'AI 파싱 중',   color: 'bg-amber-100 text-amber-700 animate-pulse' },
-  ready:     { label: '사용 가능',    color: 'bg-green-100 text-green-700' },
-  error:     { label: '오류',         color: 'bg-red-100 text-red-700'     },
+  uploading: { label: '업로드 중',   color: 'bg-blue-100 text-blue-700'   },
+  parsing:   { label: 'AI 분석 중', color: 'bg-amber-100 text-amber-700 animate-pulse' },
+  ready:     { label: '사용 가능',  color: 'bg-green-100 text-green-700' },
+  error:     { label: '오류',       color: 'bg-red-100 text-red-700'     },
 }
-
-const AVAILABLE_CLASSES: AssignedClass[] = [
-  { schoolId: 'dankook', semester: '26-summer', classId: 'advanced-6' },
-]
 
 interface Props {
   onRefresh?: () => void
-  onReUpload?: (textbook: Textbook) => void  // 파일 교체 콜백
+  onReUpload?: (textbook: Textbook) => void
 }
 
 export default function TextbookList({ onRefresh, onReUpload }: Props) {
@@ -29,6 +26,9 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
   const [loading, setLoading]         = useState(false)
   const [toast, setToast]             = useState('')
 
+  // 배정 가능한 반 목록 — schools 컬렉션에서 동적 로드 (하드코딩 제거)
+  const [availableClasses, setAvailableClasses] = useState<AssignedClass[]>([])
+
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500) }
 
   const loadTextbooks = async () => {
@@ -37,7 +37,20 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
     setLoading(false)
   }
 
-  useEffect(() => { loadTextbooks() }, [])
+  const loadAvailableClasses = async () => {
+    const schools = await getAllSchools()
+    const list: AssignedClass[] = []
+    schools.forEach(s => {
+      s.semesters.forEach(sem => {
+        (s.classes[sem] ?? []).forEach(cls => {
+          list.push({ schoolId: s.id, semester: sem, classId: cls })
+        })
+      })
+    })
+    setAvailableClasses(list)
+  }
+
+  useEffect(() => { loadTextbooks(); loadAvailableClasses() }, [])
 
   const openUnits = async (tb: Textbook) => {
     setSelectedTb(tb)
@@ -53,9 +66,8 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
     onRefresh?.()
   }
 
-  // ── 교재 삭제 ───────────────────────────────────────────────────
   const handleDelete = async (tb: Textbook) => {
-    if (!confirm(`"${tb.title}" 교재를 삭제할까요?\n파싱된 데이터도 모두 삭제됩니다.`)) return
+    if (!confirm(`"${tb.title}" 교재를 삭제할까요?\n분석된 데이터도 모두 삭제돼요.`)) return
     try {
       await deleteTextbook(tb.id)
       showToast(`"${tb.title}" 삭제됐어요.`)
@@ -76,6 +88,7 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
       readingTopics:   editUnit.readingTopics,
       listeningPoints: editUnit.listeningPoints,
       writingTheme:    editUnit.writingTheme,
+      manuallyEdited:  true,   // 선생님이 직접 수정했음을 표시 (AI 생성 뱃지와 구분)
     })
     showToast('저장됐어요!')
     const updated = await getUnits(selectedTb.id)
@@ -94,6 +107,7 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
     <div className="space-y-3">
       {textbooks.map(tb => {
         const sc = STATUS_LABEL[tb.status] ?? STATUS_LABEL.error
+        const isSyllabus = (tb as Textbook & { sourceType?: string }).sourceType === 'syllabus'
         return (
           <div key={tb.id} className="border border-gray-100 rounded-2xl p-4 hover:border-indigo-200 transition-colors">
             <div className="flex items-start justify-between gap-3">
@@ -102,6 +116,11 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
                   <span className="font-bold text-sm">{tb.title}</span>
                   <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">{tb.level}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${sc.color}`}>{sc.label}</span>
+                  {isSyllabus && (
+                    <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold" title="지침서를 바탕으로 AI가 추정 생성한 내용이에요">
+                      ✨ 지침서 기반 (AI 생성)
+                    </span>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-1 mt-1">
                   {tb.assignedClasses?.length > 0 ? (
@@ -115,14 +134,16 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
                   )}
                 </div>
                 {tb.status === 'ready' && (
-                  <div className="text-xs text-gray-400 mt-1">{tb.unitCount}개 과 파싱 완료</div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    {tb.unitCount}개 과 {isSyllabus ? '생성' : '분석'} 완료
+                    {isSyllabus && <span className="text-amber-500 ml-1">— 내용 검토를 권장해요</span>}
+                  </div>
                 )}
                 {tb.status === 'error' && (
-                  <div className="text-xs text-red-400 mt-1">파싱 실패 — 파일을 교체하거나 삭제 후 재업로드해주세요.</div>
+                  <div className="text-xs text-red-400 mt-1">처리 실패. 파일을 교체하거나 다시 업로드해주세요.</div>
                 )}
               </div>
 
-              {/* 액션 버튼 */}
               <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
                 <button onClick={() => setAssignModal(tb)}
                   className="text-xs border border-indigo-200 text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-50 font-bold transition-colors">
@@ -134,14 +155,12 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
                     과 보기
                   </button>
                 )}
-                {/* 파일 교체 버튼 */}
                 {onReUpload && (
                   <button onClick={() => onReUpload(tb)}
                     className="text-xs border border-amber-200 text-amber-600 px-3 py-1.5 rounded-lg hover:bg-amber-50 font-bold transition-colors">
                     파일 교체
                   </button>
                 )}
-                {/* 삭제 버튼 */}
                 <button onClick={() => handleDelete(tb)}
                   className="text-xs border border-red-200 text-red-500 px-3 py-1.5 rounded-lg hover:bg-red-50 font-bold transition-colors">
                   삭제
@@ -161,30 +180,40 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
                 <h2 className="font-bold text-lg">{selectedTb.title}</h2>
                 <p className="text-xs text-gray-400 mt-0.5">{units.length}개 과</p>
               </div>
-              <button onClick={() => { setSelectedTb(null); setEditUnit(null) }} className="text-gray-400 text-2xl">×</button>
+              <button onClick={() => { setSelectedTb(null); setEditUnit(null) }} className="text-gray-400 text-2xl">✕</button>
             </div>
             <div className="overflow-y-auto flex-1 p-6 space-y-2">
-              {units.map(unit => (
-                <div key={unit.id} className="border border-gray-100 rounded-xl p-4 hover:border-indigo-200 transition-colors">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="font-bold text-sm">{unit.unitNumber}과 {unit.title}</div>
-                    <div className="flex items-center gap-2">
-                      {unit.manuallyEdited && (
-                        <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">수정됨</span>
-                      )}
-                      <button onClick={() => setEditUnit({ ...unit })}
-                        className="text-xs text-indigo-600 border border-indigo-200 px-3 py-1 rounded-lg hover:bg-indigo-50 font-bold">
-                        수정
-                      </button>
+              {units.map(unit => {
+                const aiGen = (unit as TextbookUnit & { aiGenerated?: boolean }).aiGenerated
+                return (
+                  <div key={unit.id} className="border border-gray-100 rounded-xl p-4 hover:border-indigo-200 transition-colors">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="font-bold text-sm flex items-center gap-2">
+                        {unit.unitNumber}과 {unit.title}
+                        {aiGen && !unit.manuallyEdited && (
+                          <span className="text-[11px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                            ✨ AI 생성 · 검토 필요
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {unit.manuallyEdited && (
+                          <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">검토 완료</span>
+                        )}
+                        <button onClick={() => setEditUnit({ ...unit })}
+                          className="text-xs text-indigo-600 border border-indigo-200 px-3 py-1 rounded-lg hover:bg-indigo-50 font-bold">
+                          수정
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 text-xs text-gray-400 flex-wrap">
+                      <span>어휘 {unit.vocabulary?.length ?? 0}개</span>
+                      <span>문법 {unit.grammar?.length ?? 0}개</span>
+                      <span>관용어 {unit.idioms?.length ?? 0}개</span>
                     </div>
                   </div>
-                  <div className="flex gap-3 text-xs text-gray-400 flex-wrap">
-                    <span>어휘 {unit.vocabulary?.length ?? 0}개</span>
-                    <span>문법 {unit.grammar?.length ?? 0}개</span>
-                    <span>관용어 {unit.idioms?.length ?? 0}개</span>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>
@@ -196,7 +225,7 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
           <div className="bg-white rounded-3xl w-full max-w-[680px] max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
               <h2 className="font-bold text-lg">{editUnit.unitNumber}과 수정 — {editUnit.title}</h2>
-              <button onClick={() => setEditUnit(null)} className="text-gray-400 text-2xl">×</button>
+              <button onClick={() => setEditUnit(null)} className="text-gray-400 text-2xl">✕</button>
             </div>
             <div className="overflow-y-auto flex-1 p-6 space-y-5">
               <div>
@@ -236,7 +265,7 @@ export default function TextbookList({ onRefresh, onReUpload }: Props) {
       {assignModal && (
         <AssignClassModal
           textbook={assignModal}
-          availableClasses={AVAILABLE_CLASSES}
+          availableClasses={availableClasses}
           onSave={(classes) => handleAssign(assignModal, classes)}
           onClose={() => setAssignModal(null)}
         />
@@ -277,9 +306,12 @@ function AssignClassModal({ textbook, availableClasses, onSave, onClose }: {
             <h2 className="font-bold text-lg">반 배정</h2>
             <p className="text-xs text-gray-400 mt-0.5">{textbook.title}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 text-2xl">×</button>
+          <button onClick={onClose} className="text-gray-400 text-2xl">✕</button>
         </div>
-        <div className="space-y-2 mb-6">
+        <div className="space-y-2 mb-6 max-h-[320px] overflow-y-auto">
+          {availableClasses.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-6">등록된 반이 없어요. 먼저 학교/반을 등록해주세요.</p>
+          )}
           {availableClasses.map((ac, i) => (
             <label key={i} className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors
               ${isSelected(ac) ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'}`}>

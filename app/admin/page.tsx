@@ -11,7 +11,7 @@ import SchoolManager from '@/components/admin/SchoolManager'
 import { getAllUsers, getPendingUsers, approveUser, rejectUser, deleteUser, updateFreeWritingEnabled } from '@/lib/firestore/users'
 import { deleteTextbook } from '@/lib/firestore/textbooks'
 import { getAllTeacherCodes } from '@/lib/firestore/teacherCodes'
-import { updateDoc, doc } from 'firebase/firestore'
+import { updateDoc, doc, collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '@/firebase/firebaseConfig'
 import { AppUser } from '@/types/user'
 import { Textbook } from '@/types/textbook'
@@ -45,13 +45,28 @@ export default function AdminPage() {
   }
 
   const handleReject = async (user: AppUser) => {
-    if (!confirm(`${user.nameKr} 가입 신청을 거절할까요?`)) return
+    if (!confirm(`${user.nameKr} 가입 요청을 거절할까요?`)) return
     await rejectUser(user.uid)
     showToast(`${user.nameKr} 거절됨`)
     loadAll()
   }
 
-  // ── 학생 삭제 ────────────────────────────────────────────────────
+  // ── 학생 계정의 roster 연결 초기화 ────────────────────────────
+  // 계정 삭제 후에도 roster.status가 'registered'로 남아있으면
+  // 같은 학번/영문명으로 재가입이 영구히 막히는 문제가 있어 반드시 필요
+  const resetRosterForUid = async (uid: string) => {
+    const q = query(collection(db, 'roster'), where('uid', '==', uid))
+    const snap = await getDocs(q)
+    await Promise.all(
+      snap.docs.map(d => updateDoc(doc(db, 'roster', d.id), {
+        status: 'unregistered',
+        uid: null,
+      }))
+    )
+    return snap.size
+  }
+
+  // ── 학생 삭제 ─────────────────────────────────────────────────
   const handleDeleteUser = async (user: AppUser) => {
     if (!confirm(`"${user.nameKr}"를 삭제할까요?\nFirebase 계정과 데이터가 모두 삭제되며 되돌릴 수 없어요.`)) return
     try {
@@ -64,6 +79,12 @@ export default function AdminPage() {
             used: false, usedBy: null,
           })
         }
+      }
+
+      // 학생이면 roster 연결 초기화 (재가입 가능하게)
+      let rosterReset = 0
+      if (user.role === 'student') {
+        rosterReset = await resetRosterForUid(user.uid)
       }
 
       // Firestore 문서 삭제
@@ -81,7 +102,11 @@ export default function AdminPage() {
         })
       }
 
-      showToast(`${user.nameKr} 계정이 완전히 삭제됐어요.`)
+      showToast(
+        rosterReset > 0
+          ? `${user.nameKr} 계정이 완전히 삭제됐어요. (출석부 재가입 가능 상태로 초기화됨)`
+          : `${user.nameKr} 계정이 완전히 삭제됐어요.`
+      )
       loadAll()
     } catch (e) {
       showToast('삭제 중 오류가 발생했어요.')
@@ -89,10 +114,9 @@ export default function AdminPage() {
     }
   }
 
-  // ── 교재 파일 교체 ────────────────────────────────────────────────
+  // ── 교재 파일 교체 ────────────────────────────────────────────
   const handleReUpload = async (tb: Textbook) => {
-    if (!confirm(`"${tb.title}" 파일을 교체할까요?\n기존 파싱 데이터가 삭제되고 새로 파싱됩니다.`)) return
-    // 기존 교재 삭제 후 업로드 창 열기
+    if (!confirm(`"${tb.title}" 파일을 교체할까요?\n기존 분석 데이터가 삭제되고 새로 분석합니다.`)) return
     await deleteTextbook(tb.id)
     setReUploadTarget(tb)
     setShowUpload(true)
@@ -112,7 +136,7 @@ export default function AdminPage() {
   }
 
   const TABS: { key: Tab; label: string; badge?: number }[] = [
-    { key: 'users',        label: '전체 유저 목록' },
+    { key: 'users',        label: '전체 사용자 목록' },
     { key: 'pending',      label: '가입 대기', badge: pending.length },
     { key: 'textbooks',    label: '교재 관리' },
     { key: 'teacherCodes', label: '선생님 코드' },
@@ -129,14 +153,14 @@ export default function AdminPage() {
           <div className="bg-gradient-to-r from-[#1E1B4B] to-[#312E81] text-white rounded-2xl px-6 py-5 mb-5 flex items-center justify-between">
             <div>
               <h1 className="font-bold text-xl">관리자 대시보드</h1>
-              <p className="text-sm opacity-70 mt-0.5">단국대 · 26-여름학기</p>
+              <p className="text-sm opacity-70 mt-0.5">우리반 · 전체 관리</p>
             </div>
           </div>
 
           {/* 통계 */}
           <div className="grid grid-cols-4 gap-3 mb-5">
             {[
-              ['전체 유저',   users.length,         'text-indigo-600'],
+              ['전체 사용자', users.length,         'text-indigo-600'],
               ['가입 대기',   pending.length,       'text-amber-500' ],
               ['활성 학생',   users.filter(u => u.role === 'student' && u.status === 'active').length, 'text-green-600'],
               ['선생님',      users.filter(u => u.role === 'teacher').length, 'text-blue-600'],
@@ -162,7 +186,7 @@ export default function AdminPage() {
             ))}
           </div>
 
-          {/* 전체 유저 목록 */}
+          {/* 전체 사용자 목록 */}
           {tab === 'users' && (
             <div className="bg-white rounded-2xl p-6 shadow-md overflow-x-auto">
               <table className="w-full text-sm">
@@ -199,7 +223,6 @@ export default function AdminPage() {
                           </label>
                         )}
                       </td>
-                      {/* 학생 삭제 버튼 */}
                       <td className="py-3 px-3">
                         {user.role !== 'admin' && (
                           <button onClick={() => handleDeleteUser(user)}
@@ -219,7 +242,7 @@ export default function AdminPage() {
           {tab === 'pending' && (
             <div className="bg-white rounded-2xl p-6 shadow-md space-y-3">
               {pending.length === 0 ? (
-                <p className="text-center text-gray-400 py-8 text-sm">대기 중인 가입 신청이 없어요.</p>
+                <p className="text-center text-gray-400 py-8 text-sm">대기 중인 가입 요청이 없어요.</p>
               ) : pending.map(user => (
                 <div key={user.uid} className="flex items-center justify-between p-4 border border-gray-100 rounded-2xl hover:border-indigo-200 transition-colors">
                   <div>
@@ -266,13 +289,13 @@ export default function AdminPage() {
                       {reUploadTarget ? `"${reUploadTarget.title}" 파일 교체` : '새 교재 업로드'}
                     </p>
                     {reUploadTarget && (
-                      <p className="text-xs text-amber-600 mb-3">기존 데이터가 삭제됐어요. 새 파일을 업로드하면 다시 파싱해요.</p>
+                      <p className="text-xs text-amber-600 mb-3">기존 데이터가 삭제됐어요. 새 파일을 업로드하면 다시 분석해요.</p>
                     )}
                     <TextbookUpload onUploaded={() => {
                       setShowUpload(false)
                       setReUploadTarget(null)
                       setTbRefresh(n => n + 1)
-                      showToast('교재가 성공적으로 등록됐어요!')
+                      showToast('교재가 성공적으로 등록됐어요.')
                     }}/>
                   </div>
                 )}

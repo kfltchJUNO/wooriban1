@@ -11,14 +11,29 @@ interface Props {
   onUploaded: () => void
 }
 
+type SourceType = 'textbook' | 'syllabus'
+
+const STUDENT_LEVELS = [
+  { value: '초급', label: '초급' },
+  { value: '중급', label: '중급' },
+  { value: '고급', label: '고급' },
+]
+
 export default function TextbookUpload({ onUploaded }: Props) {
   const { appUser } = useAuth()
-  const [file, setFile]         = useState<File | null>(null)
-  const [title, setTitle]       = useState('')
-  const [level, setLevel]       = useState('5A')
-  const [progress, setProgress] = useState(0)
-  const [phase, setPhase]       = useState<'idle' | 'uploading' | 'parsing' | 'done' | 'error'>('idle')
-  const [errorMsg, setErrorMsg] = useState('')
+  const [sourceType, setSourceType] = useState<SourceType>('textbook')
+  const [file, setFile]             = useState<File | null>(null)
+  const [title, setTitle]           = useState('')
+  const [level, setLevel]           = useState('5A')          // 교재 급수 표기 (기존 유지)
+  const [studentLevel, setStudentLevel] = useState('중급')     // 지침서 모드 전용: 생성 난이도
+  const [progress, setProgress]     = useState(0)
+  const [phase, setPhase]           = useState<'idle' | 'uploading' | 'parsing' | 'done' | 'error'>('idle')
+  const [errorMsg, setErrorMsg]     = useState('')
+
+  const handleSourceChange = (type: SourceType) => {
+    if (phase !== 'idle') return
+    setSourceType(type)
+  }
 
   const handleUpload = async () => {
     if (!file || !title || !appUser) return
@@ -42,7 +57,7 @@ export default function TextbookUpload({ onUploaded }: Props) {
 
       setProgress(55)
 
-      // 2. Firestore에 교재 메타데이터 저장
+      // 2. Firestore에 교재 메타데이터 생성
       const textbookId = await createTextbook({
         title,
         level,
@@ -51,20 +66,28 @@ export default function TextbookUpload({ onUploaded }: Props) {
         unitCount:       0,
         assignedClasses: [],
         uploadedBy:      appUser.uid,
-      })
+        sourceType,   // 'textbook' | 'syllabus' — 목록/단원 화면에서 구분 표시용
+      } as Parameters<typeof createTextbook>[0])
 
       setProgress(60)
       setPhase('parsing')
 
-      // 3. 파싱 API 호출
-      const res = await fetch('/api/textbook/parse', {
+      // 3. 방식에 따라 다른 API 호출
+      const endpoint = sourceType === 'textbook'
+        ? '/api/textbook/parse'
+        : '/api/textbook/generate-from-syllabus'
+
+      const body = sourceType === 'textbook'
+        ? { textbookId, storageUrl: storagePath }
+        : { textbookId, storageUrl: storagePath, level: studentLevel }
+
+      const res = await fetch(endpoint, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ textbookId, storageUrl: storagePath }),
+        body:    JSON.stringify(body),
       })
 
-      if (!res.ok) throw new Error('파싱 실패')
-      const { unitCount } = await res.json()
+      if (!res.ok) throw new Error(sourceType === 'textbook' ? '분석 실패' : '생성 실패')
 
       setProgress(100)
       setPhase('done')
@@ -72,42 +95,94 @@ export default function TextbookUpload({ onUploaded }: Props) {
     } catch (e) {
       console.error(e)
       setPhase('error')
-      setErrorMsg('업로드 또는 파싱 중 오류가 발생했어요. 다시 시도해주세요.')
+      setErrorMsg('업로드 또는 처리 중 오류가 발생했어요. 다시 시도해주세요.')
     }
   }
 
   const PHASE_LABEL: Record<typeof phase, string> = {
     idle:      '',
     uploading: `PDF 업로드 중... ${progress}%`,
-    parsing:   'Gemini AI가 교재를 분석 중이에요... (1~3분 소요)',
-    done:      '✅ 파싱 완료! 교재가 등록되었어요.',
+    parsing:   sourceType === 'textbook'
+      ? 'Gemini AI가 교재를 분석 중이에요... (1~3분 소요)'
+      : 'Gemini AI가 지침서를 바탕으로 학습 내용을 만드는 중이에요... (1~3분 소요)',
+    done:      sourceType === 'textbook'
+      ? '✅ 분석 완료! 교재가 등록됐어요.'
+      : '✅ 생성 완료! AI가 만든 내용이니 검토 후 사용해주세요.',
     error:     errorMsg,
   }
 
+  const inputDisabled = phase !== 'idle'
+
   return (
     <div className="space-y-4">
+      {/* 업로드 방식 선택 */}
       <div>
-        <label className="text-xs font-bold text-gray-400 mb-1.5 block">교재 이름</label>
-        <input
-          className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500"
-          placeholder="예: 고려대 한국어 5A"
-          value={title} onChange={e => setTitle(e.target.value)}
-          disabled={phase !== 'idle'}
-        />
+        <label className="text-xs font-bold text-gray-400 mb-1.5 block">업로드 방식</label>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => handleSourceChange('textbook')} disabled={inputDisabled}
+            className={`text-left p-3 rounded-xl border-2 transition-colors disabled:opacity-50 ${
+              sourceType === 'textbook' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'
+            }`}>
+            <p className="text-sm font-bold text-gray-800">📘 교재 PDF</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">실제 교재 내용을 그대로 추출해요</p>
+          </button>
+          <button type="button" onClick={() => handleSourceChange('syllabus')} disabled={inputDisabled}
+            className={`text-left p-3 rounded-xl border-2 transition-colors disabled:opacity-50 ${
+              sourceType === 'syllabus' ? 'border-amber-500 bg-amber-50' : 'border-gray-200 hover:border-amber-200'
+            }`}>
+            <p className="text-sm font-bold text-gray-800">📋 지침서 PDF</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">주제만 있어도 AI가 내용을 만들어요</p>
+          </button>
+        </div>
+        {sourceType === 'syllabus' && (
+          <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+            ⚠️ 지침서 모드는 AI가 주제에 맞춰 어휘·문법을 추정 생성해요. 실제 교재 내용과 다를 수 있으니
+            생성 후 <b>단원 내용을 꼭 검토</b>해주세요.
+          </p>
+        )}
       </div>
 
       <div>
-        <label className="text-xs font-bold text-gray-400 mb-1.5 block">레벨</label>
-        <select
-          className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500 appearance-none"
-          value={level} onChange={e => setLevel(e.target.value)}
-          disabled={phase !== 'idle'}
-        >
-          {['1A','1B','2A','2B','3A','3B','4A','4B','5A','5B','6A','6B'].map(l => (
-            <option key={l} value={l}>{l}</option>
-          ))}
-        </select>
+        <label className="text-xs font-bold text-gray-400 mb-1.5 block">
+          {sourceType === 'textbook' ? '교재 이름' : '커리큘럼/과정 이름'}
+        </label>
+        <input
+          className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500"
+          placeholder={sourceType === 'textbook' ? '예: 고려대 한국어 5A' : '예: 2026년 여름학기 고급반 지침서'}
+          value={title} onChange={e => setTitle(e.target.value)}
+          disabled={inputDisabled}
+        />
       </div>
+
+      {sourceType === 'textbook' ? (
+        <div>
+          <label className="text-xs font-bold text-gray-400 mb-1.5 block">급수</label>
+          <select
+            className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500 appearance-none"
+            value={level} onChange={e => setLevel(e.target.value)}
+            disabled={inputDisabled}
+          >
+            {['1A','1B','2A','2B','3A','3B','4A','4B','5A','5B','6A','6B'].map(l => (
+              <option key={l} value={l}>{l}</option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div>
+          <label className="text-xs font-bold text-gray-400 mb-1.5 block">생성할 학습자 수준</label>
+          <div className="grid grid-cols-3 gap-2">
+            {STUDENT_LEVELS.map(l => (
+              <button key={l.value} type="button" onClick={() => !inputDisabled && setStudentLevel(l.value)}
+                disabled={inputDisabled}
+                className={`py-2.5 rounded-xl border-2 text-sm font-bold transition-colors disabled:opacity-50 ${
+                  studentLevel === l.value ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-500'
+                }`}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div>
         <label className="text-xs font-bold text-gray-400 mb-1.5 block">PDF 파일</label>
@@ -120,7 +195,7 @@ export default function TextbookUpload({ onUploaded }: Props) {
             id="pdf-input" type="file" accept=".pdf"
             className="hidden"
             onChange={e => setFile(e.target.files?.[0] ?? null)}
-            disabled={phase !== 'idle'}
+            disabled={inputDisabled}
           />
           {file ? (
             <div>
@@ -130,8 +205,10 @@ export default function TextbookUpload({ onUploaded }: Props) {
             </div>
           ) : (
             <div>
-              <div className="text-3xl mb-2">📚</div>
-              <div className="text-sm text-gray-500">PDF 파일을 클릭해서 선택하세요</div>
+              <div className="text-3xl mb-2">📂</div>
+              <div className="text-sm text-gray-500">
+                {sourceType === 'textbook' ? '교재 PDF 파일을 클릭해서 선택하세요' : '지침서 PDF 파일을 클릭해서 선택하세요'}
+              </div>
             </div>
           )}
         </div>
@@ -142,11 +219,11 @@ export default function TextbookUpload({ onUploaded }: Props) {
         <div>
           <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${phase === 'error' ? 'bg-red-400' : 'bg-indigo-600'}`}
+              className={`h-full rounded-full transition-all duration-500 ${phase === 'error' ? 'bg-red-400' : sourceType === 'syllabus' ? 'bg-amber-500' : 'bg-indigo-600'}`}
               style={{ width: `${progress}%` }}
             />
           </div>
-          <p className={`text-sm text-center ${phase === 'error' ? 'text-red-500' : phase === 'done' ? 'text-green-600' : 'text-indigo-600'}`}>
+          <p className={`text-sm text-center ${phase === 'error' ? 'text-red-500' : phase === 'done' ? 'text-green-600' : sourceType === 'syllabus' ? 'text-amber-600' : 'text-indigo-600'}`}>
             {PHASE_LABEL[phase]}
           </p>
         </div>
@@ -156,9 +233,13 @@ export default function TextbookUpload({ onUploaded }: Props) {
         <button
           onClick={phase === 'error' ? () => setPhase('idle') : handleUpload}
           disabled={!file || !title}
-          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-xl text-sm disabled:opacity-50 transition-colors"
+          className={`w-full text-white font-bold py-3.5 rounded-xl text-sm disabled:opacity-50 transition-colors ${
+            sourceType === 'syllabus' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700'
+          }`}
         >
-          {phase === 'error' ? '다시 시도하기' : '교재 업로드 & 파싱 시작 🚀'}
+          {phase === 'error'
+            ? '다시 시도하기'
+            : sourceType === 'textbook' ? '교재 업로드 & 분석 시작 →' : '지침서 업로드 & AI 생성 시작 →'}
         </button>
       )}
     </div>

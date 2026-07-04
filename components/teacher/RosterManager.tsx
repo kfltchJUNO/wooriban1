@@ -214,6 +214,18 @@ export default function RosterManager({ schoolId: rawSchoolId, semester, classId
     await load()
   }
 
+  // ── 가입 상태 초기화 (계정이 이미 삭제됐는데 roster만 registered로 남은 경우) ──
+  const handleUnregister = async (entry: RosterEntry) => {
+    if (!confirm(
+      `${entry.nameKr} 학생을 "미가입" 상태로 되돌릴까요?\n` +
+      `계정이 이미 삭제됐는데 출석부에는 가입완료로 남아있어 재가입이 막힌 경우에 사용하세요.\n` +
+      `(실제로 로그인 중인 학생 계정이 있다면 되돌리지 마세요)`
+    )) return
+    await updateRosterEntry(entry.id, { status: 'unregistered', uid: null } as Partial<RosterEntry>)
+    showToast(`${entry.nameKr} 학생을 미가입 상태로 되돌렸어요.`)
+    await load()
+  }
+
   // ── 정렬 ──────────────────────────────────────────────────────
   const sorted = [...roster].sort((a, b) => {
     switch (sortBy) {
@@ -409,6 +421,7 @@ export default function RosterManager({ schoolId: rawSchoolId, semester, classId
                 onSave={async data => { await updateRosterEntry(entry.id, data); setEditId(null); await load() }}
                 onCancel={() => setEditId(null)}
                 onDelete={() => handleDelete(entry.id, entry.nameKr)}
+                onUnregister={() => handleUnregister(entry)}
                 onMoveUp={() => moveEntry(idx, -1)}
                 onMoveDown={() => moveEntry(idx, 1)}
               />
@@ -479,7 +492,7 @@ function BulkPreviewTable({ rows, onSubmit, onCancel }: {
 }
 
 // ── 출석부 행 ───────────────────────────────────────────────────
-function RosterRow({ entry, idx, total, isEditing, isManualSort, onEdit, onSave, onCancel, onDelete, onMoveUp, onMoveDown }: {
+function RosterRow({ entry, idx, total, isEditing, isManualSort, onEdit, onSave, onCancel, onDelete, onUnregister, onMoveUp, onMoveDown }: {
   entry:        RosterEntry
   idx:          number
   total:        number
@@ -489,6 +502,7 @@ function RosterRow({ entry, idx, total, isEditing, isManualSort, onEdit, onSave,
   onSave:       (data: Partial<RosterEntry>) => void
   onCancel:     () => void
   onDelete:     () => void
+  onUnregister: () => void
   onMoveUp:     () => void
   onMoveDown:   () => void
 }) {
@@ -557,6 +571,10 @@ function RosterRow({ entry, idx, total, isEditing, isManualSort, onEdit, onSave,
       </td>
       <td className="px-3 py-3 text-center whitespace-nowrap">
         <button onClick={onEdit} className="text-xs font-bold text-indigo-500 hover:underline mr-2">수정</button>
+        {entry.status === 'registered' && (
+          <button onClick={onUnregister} title="계정은 삭제됐는데 여기만 가입완료로 남아있을 때 사용"
+            className="text-xs text-amber-500 hover:underline mr-2">가입 초기화</button>
+        )}
         <button onClick={onDelete} className="text-xs text-red-400 hover:underline">삭제</button>
       </td>
     </tr>
