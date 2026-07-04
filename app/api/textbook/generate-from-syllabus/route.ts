@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { adminDb, adminStorage } from '@/firebase/firebaseAdmin'
-import pdfParse from 'pdf-parse/lib/pdf-parse.js'
+import pdfParse from 'pdf-parse'
 
 class InvalidPdfError extends Error {
   constructor(detail: string) { super(detail); this.name = 'InvalidPdfError' }
@@ -25,22 +25,32 @@ const API_KEYS = [process.env.GEMINI_KEY_1!, process.env.GEMINI_KEY_2].filter(Bo
 let keyIdx = 0
 const getKey = () => { const k = API_KEYS[keyIdx % API_KEYS.length]; keyIdx++; return k }
 
-const MODELS = [
-  'gemini-2.5-flash',
-  'gemini-3.1-flash-lite',
+// ── 작업 종류별 모델 우선순위 (parse route와 동일 원칙) ──────────
+const MODELS_TOC = [
   'gemini-2.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash',
   'gemini-3-flash',
   'gemini-3.5-flash',
 ]
-let modelIdx = 0
-const getModel = () => MODELS[modelIdx % MODELS.length]
+const MODELS_UNIT = [
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-3-flash',
+  'gemini-3.5-flash',
+]
 
 async function generateWithRetry(
   genAI: GoogleGenerativeAI,
   prompt: string,
   pdfBase64: string,
+  models: string[],
   maxRetries = 5
 ): Promise<string> {
+  let modelIdx = 0
+  const getModel = () => models[modelIdx % models.length]
+
   for (let i = 0; i < maxRetries; i++) {
     const currentModel = getModel()
     try {
@@ -198,7 +208,7 @@ export async function POST(req: NextRequest) {
     const genAI = new GoogleGenerativeAI(getKey())
 
     // 1단계: 목차 추정
-    const tocRaw  = await generateWithRetry(genAI, SYLLABUS_TOC_PROMPT, base64)
+    const tocRaw  = await generateWithRetry(genAI, SYLLABUS_TOC_PROMPT, base64, MODELS_TOC)
     const tocText = tocRaw.replace(/```json|```/g, '').trim()
 
     let units: { unitNumber: number; title: string }[] = []
@@ -219,7 +229,7 @@ export async function POST(req: NextRequest) {
     for (const unit of units) {
       try {
         const unitRaw  = await generateWithRetry(
-          genAI, buildSyllabusUnitPrompt(unit.unitNumber, unit.title, level), base64
+          genAI, buildSyllabusUnitPrompt(unit.unitNumber, unit.title, level), base64, MODELS_UNIT
         )
         const unitText = unitRaw.replace(/```json|```/g, '').trim()
 

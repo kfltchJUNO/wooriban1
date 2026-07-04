@@ -2,24 +2,33 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { adminDb, adminStorage } from '@/firebase/firebaseAdmin'
-// ⚠️ pdf-parse는 반드시 lib 경로로 import해야 함.
-// 최상위 'pdf-parse'를 그대로 require하면 패키지 내부 디버그 코드가
-// 테스트용 샘플 PDF를 파일시스템에서 읽으려다 서버리스 환경에서 에러를 던짐.
-import pdfParse from 'pdf-parse/lib/pdf-parse.js'
+// pdf-parse: package.json의 exports 필드가 서브패스 import를 막아둬서
+// 기본 export로 import. (직접 실행될 때만 동작하는 내부 디버그 코드가 있지만
+// 여기서는 모듈로 import만 하므로 영향 없음)
+import pdfParse from 'pdf-parse'
 
 const API_KEYS = [process.env.GEMINI_KEY_1!, process.env.GEMINI_KEY_2].filter(Boolean) as string[]
 let keyIdx = 0
 const getKey = () => { const k = API_KEYS[keyIdx % API_KEYS.length]; keyIdx++; return k }
 
-const MODELS = [
-  'gemini-2.5-flash',
-  'gemini-3.1-flash-lite',
+// ── 작업 종류별 모델 우선순위 ────────────────────────────────────
+// 릴레이(폴백) 방식은 그대로 유지하되, 작업 성격에 맞는 모델을 1순위로 둠
+// - 목차 추출: 구조 파악만 하면 되는 가벼운 작업 → 빠른 모델 우선
+// - 과별 상세 추출: 어휘/문법 누락 없이 정확해야 하는 작업 → pro 모델 우선
+const MODELS_TOC = [
   'gemini-2.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash',
   'gemini-3-flash',
   'gemini-3.5-flash',
 ]
-let modelIdx = 0
-const getModel = () => MODELS[modelIdx % MODELS.length]
+const MODELS_UNIT = [
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-3-flash',
+  'gemini-3.5-flash',
+]
 
 // PDF 자체 문제(용량/스캔본/구조)로 판단되는 오류 — 재시도 불가, 사용자 액션 필요
 class InvalidPdfError extends Error {
@@ -49,12 +58,18 @@ async function preflightCheckPdf(buffer: Buffer): Promise<PdfPreflightResult> {
   }
 }
 
+// models: 이 호출에서 사용할 우선순위 리스트 (호출마다 독립적으로 1번부터 시작 —
+// 작업 종류별로 지정한 1순위 모델을 항상 먼저 시도하게 됨)
 async function generateWithRetry(
   genAI: GoogleGenerativeAI,
   prompt: string,
   pdfBase64: string,
+  models: string[],
   maxRetries = 5
 ): Promise<string> {
+  let modelIdx = 0
+  const getModel = () => models[modelIdx % models.length]
+
   for (let i = 0; i < maxRetries; i++) {
     const currentModel = getModel()
     try {
@@ -255,7 +270,7 @@ export async function POST(req: NextRequest) {
       console.log(`단일 과 모드: ${singleUnit.unitNumber}과 "${singleUnit.title}" — 목차 추출 생략`)
       units = [buildSingleUnitToc(singleUnit.unitNumber, singleUnit.title || `${singleUnit.unitNumber}과`).units[0]]
     } else {
-      const tocRaw  = await generateWithRetry(genAI, TABLE_OF_CONTENTS_PROMPT, base64)
+      const tocRaw  = await generateWithRetry(genAI, TABLE_OF_CONTENTS_PROMPT, base64, MODELS_TOC)
       const tocText = tocRaw.replace(/```json|```/g, '').trim()
       console.log('TOC raw:', tocRaw.slice(0, 200))
 
@@ -278,7 +293,7 @@ export async function POST(req: NextRequest) {
     const savedUnitIds: string[] = []
     for (const unit of units) {
       try {
-        const unitRaw  = await generateWithRetry(genAI, buildUnitPrompt(unit.unitNumber, unit.title), base64)
+        const unitRaw  = await generateWithRetry(genAI, buildUnitPrompt(unit.unitNumber, unit.title), base64, MODELS_UNIT)
         const unitText = unitRaw.replace(/```json|```/g, '').trim()
 
         let unitData: Record<string, unknown> = {}
