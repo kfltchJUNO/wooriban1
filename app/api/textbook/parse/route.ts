@@ -46,7 +46,7 @@ class InvalidPdfError extends Error {
 // → "스캔본이라 무조건 차단"은 틀린 가정이었음(성공 사례가 스캔본이었음).
 //   실패의 진짜 변수는 아직 불확실하지만, 페이지 수가 유력한 후보라 이를 기준으로 삼음.
 //   두 값 다 관찰 데이터가 적어 추후 실패 사례가 나오면 계속 조정 필요.
-const MAX_SIZE_MB          = 45     // 46.6MB 성공 사례 기준, 여유 약간 두고 설정
+const MAX_SIZE_MB          = 48     // 46.6MB 성공, 46.2MB 시도 사례 반영해 48로 상향 (계속 조정 중)
 const MAX_PAGES_HARD       = 70     // 75페이지 실패 사례 기준 — 이 이상은 차단
 const MAX_PAGES_SOFT       = 50     // 이 이상이면 경고만(차단 안 함)
 

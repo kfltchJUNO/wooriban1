@@ -16,7 +16,7 @@ class InvalidPdfError extends Error {
 }
 
 // ⚠️ 실사용 근거로 조정된 값 (parse route와 동일 원칙 — 상세 설명은 그쪽 주석 참고)
-const MAX_SIZE_MB    = 45
+const MAX_SIZE_MB    = 48
 const MAX_PAGES_HARD = 70
 const MAX_PAGES_SOFT = 50
 
