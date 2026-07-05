@@ -37,9 +37,12 @@ const ERROR_CATEGORIES = [
 ] as const
 
 type ErrorCategory = typeof ERROR_CATEGORIES[number]
+type ErrorSeverity = 'minor' | 'moderate' | 'major'
+// minor: 사소함(의미 전달엔 지장 없음) / moderate: 어색함 / major: 의사소통에 지장을 줄 수 있음
 
 interface ErrorTag {
   category:    ErrorCategory
+  severity:    ErrorSeverity
   original:    string   // 학생이 쓴 원문 표현
   correction:  string   // 올바른 표현
   explanation: string   // 왜 틀렸는지 간단 설명
@@ -108,8 +111,11 @@ ${content}
 두 가지를 함께 응답해줘.
 
 1) 일반 피드백 (선생님이 학생에게 보여줄 코멘트)
-2) 구조화된 오류 태그 — 학생이 틀린 부분을 정확히 찾아서 아래 카테고리 중 하나로 분류
+2) 구조화된 오류 태그 — 학생이 틀린 부분을 정확히 찾아서 아래 카테고리 중 하나로 분류하고,
+   심각도도 함께 판단해줘.
    (카테고리 목록: ${ERROR_CATEGORIES.join(', ')})
+   (심각도: minor=의미 전달엔 지장 없는 사소한 실수 / moderate=다소 어색함 /
+            major=의미가 헷갈리거나 의사소통에 지장을 줄 수 있음)
    오류가 없으면 빈 배열로.
    오류가 여러 개면 최대 5개까지, 가장 명확한 것부터 우선 태깅.
 
@@ -122,6 +128,7 @@ ${content}
   "errorTags": [
     {
       "category": "조사 오류",
+      "severity": "moderate",
       "original": "학교에 공부해요",
       "correction": "학교에서 공부해요",
       "explanation": "장소에서 이루어지는 동작에는 '에서'를 써야 함"
@@ -150,11 +157,38 @@ async function accumulateErrorStats(
   }
   errorTags.forEach(tag => {
     const category = ERROR_CATEGORIES.includes(tag.category) ? tag.category : '기타'
+    const severity: ErrorSeverity = ['minor', 'moderate', 'major'].includes(tag.severity)
+      ? tag.severity : 'moderate'
     updates[`categoryCounts.${category}`] = FieldValue.increment(1)
+    updates[`severityCounts.${severity}`] = FieldValue.increment(1)
   })
   updates['totalErrorsTagged'] = FieldValue.increment(errorTags.length)
 
   await ref.set(updates, { merge: true })
+
+  // 시계열 스냅샷 — 매번 남기지 않고 "월별 최초 1회"만 그 시점 누적치를 복사해둠
+  // (studentErrorSnapshots/{studentUid}_{YYYY-MM})
+  // 나중에 "학기 초 대비 학기 말 오류 변화" 같은 추이 분석에 사용
+  try {
+    const monthKey    = new Date().toISOString().slice(0, 7)   // "2026-07"
+    const snapshotId  = `${studentUid}_${monthKey}`
+    const snapshotRef = adminDb.collection('studentErrorSnapshots').doc(snapshotId)
+    const existing    = await snapshotRef.get()
+    if (!existing.exists) {
+      const current = await ref.get()
+      await snapshotRef.set({
+        studentUid, classId, schoolId, semester,
+        monthKey,
+        categoryCounts:    current.data()?.categoryCounts    ?? {},
+        severityCounts:    current.data()?.severityCounts    ?? {},
+        totalSubmissions:  current.data()?.totalSubmissions  ?? 0,
+        totalErrorsTagged: current.data()?.totalErrorsTagged ?? 0,
+        snapshotAt: FieldValue.serverTimestamp(),
+      })
+    }
+  } catch (e) {
+    console.error('월별 스냅샷 저장 실패(통계 자체는 정상 누적됨):', e)
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -198,6 +232,11 @@ export async function POST(req: NextRequest) {
     }
     const errorTags = Array.isArray(parsed.errorTags) ? parsed.errorTags.slice(0, 5) : []
 
+    // 정오표 대조군 — AI 태깅 정확도를 확인하기 위해 제출물의 약 10%를
+    // 무작위로 "검수 요청" 표시. 선생님이 FeedbackEditor에서 AI 태그가
+    // 맞는지 확인하고 승인/수정하면 그 결과가 AI 정확도 연구 데이터가 됨.
+    const needsAudit = errorTags.length > 0 && Math.random() < 0.1
+
     await adminDb.collection('feedback').add({
       submissionId,
       classId: classId ?? null,   // ← 단원별 분석(analysis/errors)이 정확히 범위를 좁힐 수 있도록 추가
@@ -209,10 +248,13 @@ export async function POST(req: NextRequest) {
         errorTags,
         generatedAt: new Date(),
       },
-      teacherComment:  '',
-      teacherApproved: false,
-      textbookId:      textbookId ?? null,
-      unitId:          unitId     ?? null,
+      teacherComment:   '',
+      teacherApproved:  false,
+      needsAudit,               // true면 선생님 화면에 "AI 태깅 검수 요청" 표시
+      auditResult:      null,   // 선생님 검수 후: 'confirmed' | 'corrected'
+      auditedTags:      null,   // 선생님이 수정한 태그(있다면)
+      textbookId:       textbookId ?? null,
+      unitId:           unitId     ?? null,
     })
 
     await adminDb.collection('submissions').doc(submissionId).update({ status: 'ai_done' })

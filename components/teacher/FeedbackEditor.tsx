@@ -1,9 +1,11 @@
 'use client'
 import { useState } from 'react'
 import { Submission } from '@/types/assignment'
-import { Feedback } from '@/types/feedback'
+import { Feedback, ErrorTag } from '@/types/feedback'
 import { approveFeedback } from '@/lib/firestore/feedback'
 import { updateSubmissionStatus } from '@/lib/firestore/submissions'
+import { doc, updateDoc } from 'firebase/firestore'
+import { db } from '@/firebase/firebaseConfig'
 
 interface Props {
   student: { nameKr: string }
@@ -13,17 +15,47 @@ interface Props {
   onSent: () => void
 }
 
+const SEVERITY_LABEL: Record<string, { label: string; color: string }> = {
+  minor:    { label: '경미',   color: 'bg-gray-100 text-gray-500' },
+  moderate: { label: '보통',   color: 'bg-amber-100 text-amber-700' },
+  major:    { label: '중요',   color: 'bg-red-100 text-red-700' },
+}
+
 export default function FeedbackEditor({ student, submission, feedback, onClose, onSent }: Props) {
-  const [comment, setComment] = useState(feedback?.teacherComment ?? '')
-  const [loading, setLoading] = useState(false)
+  const [comment, setComment]   = useState(feedback?.teacherComment ?? '')
+  const [loading, setLoading]   = useState(false)
+  // 검수(대조군) 상태: 태그별로 '맞음'/'수정 필요' 표시 (오디팅용, 학생에게는 안 보임)
+  const [auditChoices, setAuditChoices] = useState<Record<number, 'confirmed' | 'corrected'>>({})
+
+  const errorTags: ErrorTag[] = feedback?.aiFeedback?.errorTags ?? []
+  const needsAudit = feedback?.needsAudit ?? false
+
+  const handleAuditChoice = (idx: number, choice: 'confirmed' | 'corrected') => {
+    setAuditChoices(prev => ({ ...prev, [idx]: choice }))
+  }
 
   const handleSend = async () => {
     if (!feedback) return
     setLoading(true)
-    await approveFeedback(feedback.id, comment)
-    await updateSubmissionStatus(submission.id, 'feedback_sent')
-    onSent()
-    setLoading(false)
+    try {
+      await approveFeedback(feedback.id, comment)
+
+      // 검수 대상이었고 선생님이 하나 이상 판정을 남겼으면 결과 저장
+      // (AI 태깅 정확도 연구용 — 전체 확정/일부 수정 여부만 남김, 학생에게는 노출 안 됨)
+      if (needsAudit && Object.keys(auditChoices).length > 0) {
+        const allConfirmed = errorTags.every((_: ErrorTag, i: number) => auditChoices[i] === 'confirmed')
+        await updateDoc(doc(db, 'feedback', feedback.id), {
+          auditResult: allConfirmed ? 'confirmed' : 'corrected',
+          auditedAt:   new Date(),
+          auditDetail: auditChoices,
+        })
+      }
+
+      await updateSubmissionStatus(submission.id, 'feedback_sent')
+      onSent()
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -34,11 +66,16 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
           <button onClick={onClose} className="text-gray-400 text-2xl">✕</button>
         </div>
 
-        <div className="flex gap-2 mb-4 flex-wrap text-xs text-gray-400">
+        <div className="flex gap-2 mb-4 flex-wrap text-xs text-gray-400 items-center">
           <span className="bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full font-bold">검토 대기</span>
           <span>글자 수: {submission.charCount}자</span>
           {submission.pasteAttempts > 0 && (
             <span className="text-red-400">붙여넣기 시도: {submission.pasteAttempts}회</span>
+          )}
+          {needsAudit && (
+            <span className="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full font-bold">
+              🔍 AI 태깅 검수 요청
+            </span>
           )}
         </div>
 
@@ -62,6 +99,60 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
                 </div>
               ))}
             </div>
+
+            {/* 구조화된 오류 태그 목록 */}
+            {errorTags.length > 0 && (
+              <div className={`rounded-2xl p-5 mb-4 border ${needsAudit ? 'border-purple-200 bg-purple-50' : 'border-gray-100 bg-gray-50'}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-gray-700">🏷️ 오류 태그 상세</h3>
+                  {needsAudit && (
+                    <span className="text-[11px] text-purple-500">
+                      AI 태깅이 정확한지 확인해주세요 (연구용 데이터)
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-2.5">
+                  {errorTags.map((tag: ErrorTag, idx: number) => {
+                    const sev = SEVERITY_LABEL[tag.severity ?? 'moderate']
+                    const choice = auditChoices[idx]
+                    return (
+                      <div key={idx} className="bg-white rounded-xl p-3 border border-gray-100">
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                          <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                            {tag.category}
+                          </span>
+                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${sev.color}`}>
+                            {sev.label}
+                          </span>
+                        </div>
+                        <p className="text-xs text-red-500 line-through">{tag.original}</p>
+                        <p className="text-xs text-green-600 font-semibold">→ {tag.correction}</p>
+                        {tag.explanation && (
+                          <p className="text-[11px] text-gray-400 mt-1">{tag.explanation}</p>
+                        )}
+
+                        {needsAudit && (
+                          <div className="flex gap-1.5 mt-2 pt-2 border-t border-gray-50">
+                            <button onClick={() => handleAuditChoice(idx, 'confirmed')}
+                              className={`text-[11px] font-bold px-2.5 py-1 rounded-lg transition-colors ${
+                                choice === 'confirmed' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-green-50'
+                              }`}>
+                              ✓ 정확함
+                            </button>
+                            <button onClick={() => handleAuditChoice(idx, 'corrected')}
+                              className={`text-[11px] font-bold px-2.5 py-1 rounded-lg transition-colors ${
+                                choice === 'corrected' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-red-50'
+                              }`}>
+                              ✗ 틀림/부정확
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="mb-4">
               <label className="text-xs font-bold text-gray-400 mb-1.5 block">👩‍🏫 선생님 의견 (학생에게 표시됨)</label>

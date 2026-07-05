@@ -32,4 +32,8 @@ export interface AppUser {
   // 유료 재화 (현재 미사용, 유료화 대비 — 쌤툴과 공유)
   chalk?:       number
   chalkEvents?: ChalkEvent[]
+
+  // 학습 데이터 연구 활용 동의 (학생 가입 시 필수)
+  researchConsent?:   boolean
+  researchConsentAt?: Date
 }

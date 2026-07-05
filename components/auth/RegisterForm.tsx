@@ -67,23 +67,26 @@ function ModeSelect({ onSelect }: { onSelect: (m: Mode) => void }) {
   )
 }
 
-function AccountSetup({ nameLabel, onSubmit, loading, error }: {
+function AccountSetup({ nameLabel, onSubmit, loading, error, requireResearchConsent = false }: {
   nameLabel: string
-  onSubmit:  (userId: string, pw: string) => void
+  onSubmit:  (userId: string, pw: string, researchConsent: boolean) => void
   loading:   boolean
   error:     string
+  requireResearchConsent?: boolean
 }) {
   const [userId,   setUserId]   = useState('')
   const [pw,       setPw]       = useState('')
   const [pwConf,   setPwConf]   = useState('')
+  const [consent,  setConsent]  = useState(false)
   const [localErr, setLocalErr] = useState('')
 
   const handleSubmit = () => {
     if (!userId.trim())  { setLocalErr('아이디를 입력해주세요.'); return }
     if (pw.length < 8)   { setLocalErr('비밀번호는 8자 이상이어야 해요.'); return }
     if (pw !== pwConf)   { setLocalErr('비밀번호가 일치하지 않아요.'); return }
+    if (requireResearchConsent && !consent) { setLocalErr('연구 활용 동의가 필요해요.'); return }
     setLocalErr('')
-    onSubmit(userId.trim(), pw)
+    onSubmit(userId.trim(), pw, consent)
   }
 
   return (
@@ -114,6 +117,19 @@ function AccountSetup({ nameLabel, onSubmit, loading, error }: {
           placeholder="비밀번호를 다시 입력"
           className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-400" />
       </div>
+
+      {requireResearchConsent && (
+        <label className="flex items-start gap-2.5 bg-gray-50 border border-gray-200 rounded-xl p-3 cursor-pointer">
+          <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)}
+            className="mt-0.5 w-4 h-4 accent-indigo-600 cursor-pointer flex-shrink-0" />
+          <span className="text-xs text-gray-600 leading-relaxed">
+            학습 데이터(작문, AI 피드백, 오류 유형 등)가 <b>서비스 개선 및 교육 연구 목적으로
+            익명 처리되어</b> 활용될 수 있다는 점에 동의합니다. 개인을 식별할 수 있는 정보는
+            연구에 사용되지 않으며, 동의하지 않아도 서비스 이용에는 제한이 없습니다.
+          </span>
+        </label>
+      )}
+
       {(localErr || error) && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
           {localErr || error}
@@ -195,7 +211,7 @@ function StudentRegister({ onBack, router }: { onBack: () => void; router: Retur
     finally { setLoading(false) }
   }
 
-  const handleCreate = async (userId: string, pw: string) => {
+  const handleCreate = async (userId: string, pw: string, researchConsent: boolean) => {
     setLoading(true); setErr('')
     try {
       const email         = `${userId}@wooriban.app`
@@ -217,6 +233,8 @@ function StudentRegister({ onBack, router }: { onBack: () => void; router: Retur
         sortOrder:          999,
         freeWritingEnabled: true,
         loginType:          'email',
+        researchConsent,                       // 학습 데이터 연구 활용 동의 여부
+        researchConsentAt:  new Date(),
       })
       if (roster) await linkRosterToUid(roster.id, uid)
       await new Promise(r => setTimeout(r, 800))  // Firestore 반영 대기
@@ -288,7 +306,8 @@ function StudentRegister({ onBack, router }: { onBack: () => void; router: Retur
       )}
 
       {step === 2 && (
-        <AccountSetup nameLabel={roster?.nameKr ?? nameEn} onSubmit={handleCreate} loading={loading} error={err} />
+        <AccountSetup nameLabel={roster?.nameKr ?? nameEn} onSubmit={handleCreate} loading={loading} error={err}
+          requireResearchConsent />
       )}
     </div>
   )
@@ -318,6 +337,7 @@ function TeacherRegister({ onBack, router }: { onBack: () => void; router: Retur
   }
 
   const handleCreate = async (userId: string, pw: string) => {
+    // 선생님 가입은 연구 동의 항목 없음 (requireResearchConsent 미지정이라 onSubmit이 2개 인자만 와도 됨)
     if (!codeInfo) return
     setLoading(true); setErr('')
     let createdUid: string | null = null
