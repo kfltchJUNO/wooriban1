@@ -178,7 +178,7 @@ export default function TeacherPage() {
           />
         )}
         {showErrorPattern && (
-          <ErrorPatternViewer onClose={() => setShowErrorPattern(false)} />
+          <ErrorPatternViewer onClose={() => setShowErrorPattern(false)} students={students} />
         )}
 
         {toast && (
