@@ -134,7 +134,7 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit }: Prop
         })
       }
 
-      // AI 피드백 요청
+      // AI 피드백 요청 (오류 통계 집계를 위해 학생/반 정보도 함께 전송)
       await fetch('/api/feedback', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -144,6 +144,10 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit }: Prop
           level:        '고급',
           assignment:   assignment.description,
           grammar:      assignment.grammar,
+          studentUid:   appUser.uid,
+          classId:      appUser.classId,
+          schoolId:     appUser.schoolId,
+          semester:     appUser.semester,
         }),
       })
       onSubmit()
