@@ -24,7 +24,8 @@ const getModel = () => MODELS[modelIdx % MODELS.length]
 
 // ── 오류 카테고리 고정 목록 (쌤툴 퀴즈 라이브러리와 동일 체계) ──
 // 여기서 통일해두면 나중에 "반이 자주 틀리는 항목으로 퀴즈 자동 생성" 연동이 쉬워짐
-export const ERROR_CATEGORIES = [
+// ⚠️ route.ts는 GET/POST 등 정해진 이름만 export 가능 — 일반 상수는 export 금지
+const ERROR_CATEGORIES = [
   '조사 오류',
   '시제 사용 오류',
   '어순 오류',
@@ -35,9 +36,9 @@ export const ERROR_CATEGORIES = [
   '기타',
 ] as const
 
-export type ErrorCategory = typeof ERROR_CATEGORIES[number]
+type ErrorCategory = typeof ERROR_CATEGORIES[number]
 
-export interface ErrorTag {
+interface ErrorTag {
   category:    ErrorCategory
   original:    string   // 학생이 쓴 원문 표현
   correction:  string   // 올바른 표현
