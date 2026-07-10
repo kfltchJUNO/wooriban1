@@ -204,11 +204,15 @@ export async function POST(req: NextRequest) {
     if (!submissionId || !content) {
       return NextResponse.json({ error: '필수 항목 누락' }, { status: 400 })
     }
-    if (content.length < 150) {
-      return NextResponse.json({ error: '150자 이상 필요' }, { status: 400 })
+    // ⚠️ 과제별 최소/최대 글자 수는 선생님이 자유롭게 설정 가능(AssignmentModal)해서
+    // 여기에 고정값(150/2000)을 걸면 과제 기준과 어긋나 정상 제출도 막힐 수 있었음
+    // (실제로 이 버그로 AI 피드백이 시작조차 안 되는 문제가 있었음)
+    // → 분석 자체가 무의미한 극단적인 경우만 최소한으로 방지
+    if (content.trim().length < 10) {
+      return NextResponse.json({ error: '분석하기에 내용이 너무 짧아요.' }, { status: 400 })
     }
-    if (content.length > 2000) {
-      return NextResponse.json({ error: '2000자 초과' }, { status: 400 })
+    if (content.length > 8000) {
+      return NextResponse.json({ error: '내용이 너무 길어요 (8000자 초과).' }, { status: 400 })
     }
 
     submissionIdForRecovery = submissionId

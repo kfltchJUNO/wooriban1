@@ -135,7 +135,7 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit }: Prop
       }
 
       // AI 피드백 요청 (오류 통계 집계를 위해 학생/반 정보도 함께 전송)
-      await fetch('/api/feedback', {
+      const fbRes = await fetch('/api/feedback', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
@@ -150,6 +150,14 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit }: Prop
           semester:     appUser.semester,
         }),
       })
+
+      if (!fbRes.ok) {
+        // 제출 자체는 이미 성공했으니 화면은 닫되, AI 분석이 안 됐다는 걸 알려줌
+        // (선생님이 검토 화면에서 상태를 보고 필요시 재시도할 수 있음)
+        console.error('AI 피드백 생성 실패:', await fbRes.json().catch(() => ({})))
+        showToast('제출은 완료됐어요. AI 분석은 잠시 후 다시 시도돼요.')
+      }
+
       onSubmit()
     } catch (e) {
       console.error(e)
