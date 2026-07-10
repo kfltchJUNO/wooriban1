@@ -2,6 +2,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth/authContext'
+import { auth } from '@/firebase/firebaseConfig'
 import { getTextbooksByClass, getUnits } from '@/lib/firestore/textbooks'
 import { createQuiz } from '@/lib/firestore/quizzes'
 import { Textbook, TextbookUnit } from '@/types/textbook'
@@ -43,19 +44,28 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
     setErr('')
     setPhase('generating')
     try {
+      const token = await auth.currentUser?.getIdToken()
+      if (!token) { setErr('로그인이 필요해요. 다시 로그인해주세요.'); setPhase('config'); return }
+
       const res = await fetch('/api/quiz/generate', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body:    JSON.stringify({ textbookId: selectedTb, unitId: selectedUnit, purpose, counts }),
       })
-      if (!res.ok) throw new Error()
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || '퀴즈 생성 실패')
+      }
       const data = await res.json()
       setQuestions(data.questions)
       const unit = units.find(u => u.id === selectedUnit)
       setQuizTitle(`${unit?.unitNumber}과 ${unit?.title ?? ''} ${purpose === 'review' ? '복습' : '시험'} 퀴즈`)
       setPhase('preview')
-    } catch {
-      setErr('퀴즈 생성에 실패했어요. 다시 시도해주세요.')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '퀴즈 생성에 실패했어요. 다시 시도해주세요.')
       setPhase('config')
     }
   }
@@ -100,7 +110,7 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
             <p className="text-xs text-gray-400 mt-0.5">
               {phase === 'config'     ? '사지선다형 퀴즈 설정'
                : phase === 'generating' ? 'AI 생성 중...'
-               : phase === 'preview'    ? `미리보기 — ${questions.length}문항`
+               : phase === 'preview'    ? `미리보기 · ${questions.length}문항`
                : '저장 중...'}
             </p>
           </div>
@@ -146,7 +156,7 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
                       className={`p-3 border-2 rounded-xl text-sm font-bold transition-all text-center ${
                         purpose === p ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-200 hover:border-indigo-300'
                       }`}>
-                      {p === 'review' ? '📚 복습용' : '📝 시험용'}
+                      {p === 'review' ? '📘 복습용' : '📝 시험용'}
                       <p className="text-xs font-normal text-gray-400 mt-0.5">
                         {p === 'review' ? '힌트 포함' : '힌트 없음'}
                       </p>
@@ -189,7 +199,7 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
 
               <button onClick={handleGenerate} disabled={!selectedTb || !selectedUnit}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-xl text-sm disabled:opacity-50 transition-colors">
-                AI로 퀴즈 생성하기 🤖
+                AI로 퀴즈 생성하기 →
               </button>
             </div>
           )}
@@ -197,7 +207,7 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
           {/* ── 생성 중 ── */}
           {phase === 'generating' && (
             <div className="text-center py-12">
-              <div className="text-5xl mb-4 animate-bounce">🤖</div>
+              <div className="text-5xl mb-4 animate-bounce">🎯</div>
               <p className="font-bold text-indigo-600">퀴즈를 생성하고 있어요...</p>
               <p className="text-sm text-gray-400 mt-2">사지선다 {totalQ}문항을 만들고 있어요</p>
             </div>
@@ -206,18 +216,15 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
           {/* ── 미리보기 ── */}
           {phase === 'preview' && (
             <div className="space-y-4">
-              {/* 제목 */}
               <div>
                 <label className="text-xs font-bold text-gray-400 mb-1.5 block">퀴즈 제목</label>
                 <input className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500"
                   value={quizTitle} onChange={e => setQuizTitle(e.target.value)} />
               </div>
 
-              {/* 문제 목록 */}
               <div className="space-y-4">
                 {questions.map((q, i) => (
                   <div key={q.id ?? i} className="border border-gray-100 rounded-2xl p-4 space-y-3">
-                    {/* 문제 헤더 */}
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-black text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Q{i + 1}</span>
                       <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${CATEGORY_COLOR[q.category] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -226,10 +233,8 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
                       <span className="text-xs text-gray-300 ml-auto">{q.difficulty}</span>
                     </div>
 
-                    {/* 문제 텍스트 */}
                     <p className="text-sm font-semibold text-gray-800 whitespace-pre-line">{q.question}</p>
 
-                    {/* 선택지 */}
                     {q.choices && q.choices.length > 0 ? (
                       <div className="space-y-1.5">
                         {q.choices.map((choice, ci) => (
@@ -244,18 +249,15 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
                         ))}
                       </div>
                     ) : (
-                      // 구형 형식 fallback
                       <p className="text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-lg">
                         정답: {q.answer}
                       </p>
                     )}
 
-                    {/* 해설 */}
                     {q.explanation && (
                       <p className="text-xs text-gray-400 border-t border-gray-50 pt-2">{q.explanation}</p>
                     )}
 
-                    {/* 힌트 (복습용만) */}
                     {purpose === 'review' && q.hint && (
                       <p className="text-xs text-indigo-400 bg-indigo-50 px-3 py-1.5 rounded-lg">💡 힌트: {q.hint}</p>
                     )}
@@ -279,7 +281,7 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
           <div className="p-6 border-t border-gray-100 flex gap-3">
             <button onClick={() => setPhase('config')}
               className="flex-1 border-2 border-gray-200 text-gray-600 font-bold py-3 rounded-xl text-sm hover:bg-gray-50">
-              ← 다시 생성
+              다시 생성
             </button>
             <button onClick={() => handleSave(false)}
               className="flex-1 border-2 border-indigo-200 text-indigo-600 font-bold py-3 rounded-xl text-sm hover:bg-indigo-50">
@@ -287,7 +289,7 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
             </button>
             <button onClick={() => handleSave(true)}
               className="flex-[2] bg-indigo-600 text-white font-bold py-3 rounded-xl text-sm hover:bg-indigo-700 transition-colors">
-              학생에게 배포 📤
+              학생에게 배포하기
             </button>
           </div>
         )}
