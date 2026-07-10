@@ -224,44 +224,17 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
 
               <div className="space-y-4">
                 {questions.map((q, i) => (
-                  <div key={q.id ?? i} className="border border-gray-100 rounded-2xl p-4 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-black text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Q{i + 1}</span>
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${CATEGORY_COLOR[q.category] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {CATEGORY_LABEL[q.category] ?? q.category}
-                      </span>
-                      <span className="text-xs text-gray-300 ml-auto">{q.difficulty}</span>
-                    </div>
-
-                    <p className="text-sm font-semibold text-gray-800 whitespace-pre-line">{q.question}</p>
-
-                    {q.choices && q.choices.length > 0 ? (
-                      <div className="space-y-1.5">
-                        {q.choices.map((choice, ci) => (
-                          <div key={ci} className={`text-sm px-3 py-2 rounded-xl border ${
-                            ci === q.correctIndex
-                              ? 'border-green-300 bg-green-50 text-green-800 font-semibold'
-                              : 'border-gray-100 text-gray-600'
-                          }`}>
-                            {choice}
-                            {ci === q.correctIndex && <span className="ml-2 text-green-600 text-xs">✓ 정답</span>}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-lg">
-                        정답: {q.answer}
-                      </p>
-                    )}
-
-                    {q.explanation && (
-                      <p className="text-xs text-gray-400 border-t border-gray-50 pt-2">{q.explanation}</p>
-                    )}
-
-                    {purpose === 'review' && q.hint && (
-                      <p className="text-xs text-indigo-400 bg-indigo-50 px-3 py-1.5 rounded-lg">💡 힌트: {q.hint}</p>
-                    )}
-                  </div>
+                  <QuestionPreviewCard
+                    key={q.id ?? i}
+                    question={q}
+                    index={i}
+                    purpose={purpose}
+                    canDelete={questions.length > 1}
+                    categoryColor={CATEGORY_COLOR}
+                    categoryLabel={CATEGORY_LABEL}
+                    onUpdate={updated => setQuestions(prev => prev.map((p, pi) => pi === i ? updated : p))}
+                    onDelete={() => setQuestions(prev => prev.filter((_, pi) => pi !== i))}
+                  />
                 ))}
               </div>
             </div>
@@ -294,6 +267,178 @@ export default function QuizGenerator({ onClose, onCreated }: Props) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 문항 미리보기 카드 — 수정/삭제 지원
+// ══════════════════════════════════════════════════════════════════
+function QuestionPreviewCard({
+  question, index, purpose, canDelete, categoryColor, categoryLabel, onUpdate, onDelete,
+}: {
+  question:      QuizQuestion
+  index:         number
+  purpose:       QuizPurpose
+  canDelete:     boolean
+  categoryColor: Record<string, string>
+  categoryLabel: Record<string, string>
+  onUpdate:      (q: QuizQuestion) => void
+  onDelete:      () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft,   setDraft]   = useState<QuizQuestion>(question)
+
+  const hasChoices = Array.isArray(question.choices) && question.choices.length > 0
+
+  const startEdit = () => { setDraft(question); setEditing(true) }
+  const cancelEdit = () => setEditing(false)
+  const saveEdit = () => { onUpdate(draft); setEditing(false) }
+
+  const updateChoice = (ci: number, value: string) => {
+    if (!draft.choices) return
+    const next = [...draft.choices]
+    next[ci] = value
+    setDraft({ ...draft, choices: next })
+  }
+
+  if (editing) {
+    return (
+      <div className="border-2 border-indigo-300 rounded-2xl p-4 space-y-3 bg-indigo-50/30">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-black text-indigo-400 bg-indigo-100 px-2 py-0.5 rounded-full">Q{index + 1} 수정 중</span>
+        </div>
+
+        <div>
+          <label className="text-xs font-bold text-gray-400 block mb-1">문제</label>
+          <textarea
+            className="w-full border-2 border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500 resize-none"
+            rows={2}
+            value={draft.question}
+            onChange={e => setDraft({ ...draft, question: e.target.value })}
+          />
+        </div>
+
+        {hasChoices ? (
+          <div>
+            <label className="text-xs font-bold text-gray-400 block mb-1">선택지 (정답 클릭해서 지정)</label>
+            <div className="space-y-1.5">
+              {draft.choices!.map((choice, ci) => (
+                <div key={ci} className="flex items-center gap-2">
+                  <button onClick={() => setDraft({ ...draft, correctIndex: ci })}
+                    title="정답으로 지정"
+                    className={`w-7 h-7 flex-shrink-0 rounded-full text-xs font-bold border-2 transition-colors ${
+                      ci === draft.correctIndex
+                        ? 'bg-green-500 border-green-500 text-white'
+                        : 'border-gray-300 text-gray-400 hover:border-green-400'
+                    }`}>
+                    {ci === draft.correctIndex ? '✓' : ci + 1}
+                  </button>
+                  <input
+                    className="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-indigo-500"
+                    value={choice}
+                    onChange={e => updateChoice(ci, e.target.value)}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <label className="text-xs font-bold text-gray-400 block mb-1">정답</label>
+            <input
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+              value={draft.answer}
+              onChange={e => setDraft({ ...draft, answer: e.target.value })}
+            />
+          </div>
+        )}
+
+        <div>
+          <label className="text-xs font-bold text-gray-400 block mb-1">해설</label>
+          <textarea
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-indigo-500 resize-none"
+            rows={2}
+            value={draft.explanation ?? ''}
+            onChange={e => setDraft({ ...draft, explanation: e.target.value })}
+          />
+        </div>
+
+        {purpose === 'review' && (
+          <div>
+            <label className="text-xs font-bold text-gray-400 block mb-1">힌트</label>
+            <input
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-indigo-500"
+              value={draft.hint ?? ''}
+              onChange={e => setDraft({ ...draft, hint: e.target.value })}
+            />
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={cancelEdit}
+            className="flex-1 border-2 border-gray-200 text-gray-500 font-bold py-2 rounded-xl text-xs hover:bg-gray-50">
+            취소
+          </button>
+          <button onClick={saveEdit}
+            className="flex-[2] bg-indigo-600 text-white font-bold py-2 rounded-xl text-xs hover:bg-indigo-700 transition-colors">
+            수정 완료
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="border border-gray-100 rounded-2xl p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-black text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Q{index + 1}</span>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${categoryColor[question.category] ?? 'bg-gray-100 text-gray-600'}`}>
+          {categoryLabel[question.category] ?? question.category}
+        </span>
+        <span className="text-xs text-gray-300">{question.difficulty}</span>
+        <div className="ml-auto flex items-center gap-1">
+          <button onClick={startEdit}
+            className="text-xs font-bold text-indigo-500 hover:bg-indigo-50 px-2.5 py-1 rounded-lg transition-colors">
+            ✏️ 수정
+          </button>
+          {canDelete && (
+            <button onClick={onDelete}
+              className="text-xs font-bold text-red-400 hover:bg-red-50 px-2.5 py-1 rounded-lg transition-colors">
+              🗑
+            </button>
+          )}
+        </div>
+      </div>
+
+      <p className="text-sm font-semibold text-gray-800 whitespace-pre-line">{question.question}</p>
+
+      {hasChoices ? (
+        <div className="space-y-1.5">
+          {question.choices!.map((choice, ci) => (
+            <div key={ci} className={`text-sm px-3 py-2 rounded-xl border ${
+              ci === question.correctIndex
+                ? 'border-green-300 bg-green-50 text-green-800 font-semibold'
+                : 'border-gray-100 text-gray-600'
+            }`}>
+              {choice}
+              {ci === question.correctIndex && <span className="ml-2 text-green-600 text-xs">✓ 정답</span>}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-lg">
+          정답: {question.answer}
+        </p>
+      )}
+
+      {question.explanation && (
+        <p className="text-xs text-gray-400 border-t border-gray-50 pt-2">{question.explanation}</p>
+      )}
+
+      {purpose === 'review' && question.hint && (
+        <p className="text-xs text-indigo-400 bg-indigo-50 px-3 py-1.5 rounded-lg">💡 힌트: {question.hint}</p>
+      )}
     </div>
   )
 }
