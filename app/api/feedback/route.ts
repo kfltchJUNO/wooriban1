@@ -243,6 +243,7 @@ export async function POST(req: NextRequest) {
 
     await adminDb.collection('feedback').add({
       submissionId,
+      studentUid: studentUid ?? null,   // ← 누락돼있던 필드. 이게 없으면 학생이 본인 피드백을 못 읽음
       classId: classId ?? null,   // ← 단원별 분석(analysis/errors)이 정확히 범위를 좁힐 수 있도록 추가
       aiFeedback: {
         grammar:     parsed.grammar,
