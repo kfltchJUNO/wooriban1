@@ -1,76 +1,35 @@
-// lib/firestore/submissions.ts
+// lib/firestore/assignments.ts
 import {
   collection, addDoc, getDocs, query, where,
-  updateDoc, doc, serverTimestamp, orderBy
+  orderBy, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '@/firebase/firebaseConfig'
-import { Submission, SubmissionStatus, FreeWriting } from '@/types/assignment'
+import { Assignment } from '@/types/assignment'
 
-export async function submitAssignment(data: Omit<Submission, 'id' | 'submittedAt'>) {
-  const ref = await addDoc(collection(db, 'submissions'), {
+export async function createAssignment(data: Omit<Assignment, 'id' | 'createdAt'>): Promise<string> {
+  const ref = await addDoc(collection(db, 'assignments'), {
     ...data,
-    status: 'submitted' as SubmissionStatus,
-    submittedAt: serverTimestamp(),
+    dueDate:   data.dueDate,
+    createdAt: serverTimestamp(),
   })
   return ref.id
 }
 
-export async function getSubmissionsByClass(classId: string): Promise<Submission[]> {
+export async function getAssignmentsByClass(classId: string): Promise<Assignment[]> {
   const q = query(
-    collection(db, 'submissions'),
+    collection(db, 'assignments'),
     where('classId', '==', classId),
-    orderBy('submittedAt', 'desc')
+    where('isActive', '==', true),
+    orderBy('createdAt', 'desc'),
   )
   const snap = await getDocs(q)
-  return snap.docs.map(d => ({
-    id: d.id,
-    ...d.data(),
-    submittedAt: d.data().submittedAt?.toDate?.() ?? new Date(),
-  }) as Submission)
-}
-
-export async function getMySubmissions(studentUid: string): Promise<Submission[]> {
-  const q = query(
-    collection(db, 'submissions'),
-    where('studentUid', '==', studentUid),
-    orderBy('submittedAt', 'desc')
-  )
-  const snap = await getDocs(q)
-  return snap.docs.map(d => ({
-    id: d.id,
-    ...d.data(),
-    submittedAt: d.data().submittedAt?.toDate?.() ?? new Date(),
-  }) as Submission)
-}
-
-export async function updateSubmissionStatus(id: string, status: SubmissionStatus) {
-  await updateDoc(doc(db, 'submissions', id), { status })
-}
-
-export async function submitFreeWriting(data: Omit<FreeWriting, 'id' | 'submittedAt'>) {
-  const ref = await addDoc(collection(db, 'freeWritings'), {
-    ...data,
-    status: 'pending_approval',
-    submittedAt: serverTimestamp(),
+  return snap.docs.map(d => {
+    const data = d.data()
+    return {
+      id: d.id,
+      ...data,
+      dueDate:   data.dueDate?.toDate?.() ?? new Date(data.dueDate),
+      createdAt: data.createdAt?.toDate?.() ?? new Date(),
+    } as Assignment
   })
-  return ref.id
-}
-
-export async function getFreeWritingsByClass(classId: string): Promise<FreeWriting[]> {
-  const q = query(
-    collection(db, 'freeWritings'),
-    where('classId', '==', classId),
-    orderBy('submittedAt', 'desc')
-  )
-  const snap = await getDocs(q)
-  return snap.docs.map(d => ({
-    id: d.id,
-    ...d.data(),
-    submittedAt: d.data().submittedAt?.toDate?.() ?? new Date(),
-  }) as FreeWriting)
-}
-
-// 자유작문 상태 변경 (submissions와 컬렉션이 달라서 별도 함수 필요)
-export async function updateFreeWritingStatus(id: string, status: FreeWriting['status']) {
-  await updateDoc(doc(db, 'freeWritings', id), { status })
 }
