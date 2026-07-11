@@ -10,10 +10,10 @@ import FeedbackViewer from '@/components/student/FeedbackViewer'
 import QuizPlayer from '@/components/student/QuizPlayer'
 import { useAuth } from '@/lib/auth/authContext'
 import { getAssignmentsByClass } from '@/lib/firestore/assignments'
-import { getMySubmissions, submitFreeWriting } from '@/lib/firestore/submissions'
+import { getMySubmissions, submitFreeWriting, getMyFreeWritings } from '@/lib/firestore/submissions'
 import { getFeedbackBySubmission } from '@/lib/firestore/feedback'
 import { getPublishedQuizzesByClass, getMyAttempts } from '@/lib/firestore/quizzes'
-import { Assignment, Submission } from '@/types/assignment'
+import { Assignment, Submission, FreeWriting } from '@/types/assignment'
 import { Feedback } from '@/types/feedback'
 import { Quiz, QuizAttempt } from '@/types/quiz'
 import { formatDate } from '@/lib/utils/classUtils'
@@ -24,10 +24,11 @@ export default function StudentPage() {
   const { appUser } = useAuth()
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [myFreeWritings, setMyFreeWritings] = useState<FreeWriting[]>([])
   const [quizzes, setQuizzes]         = useState<Quiz[]>([])
   const [myAttempts, setMyAttempts]   = useState<QuizAttempt[]>([])
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null)
-  const [viewFeedback, setViewFeedback] = useState<{ feedback: Feedback; content: string } | null>(null)
+  const [viewFeedback, setViewFeedback] = useState<{ feedback: Feedback; content: string; isFreeWriting?: boolean } | null>(null)
   const [playQuiz, setPlayQuiz]       = useState<Quiz | null>(null)
   const [showFreeWrite, setShowFreeWrite] = useState(false)
   const [freeTopic, setFreeTopic]     = useState('')
@@ -74,21 +75,24 @@ export default function StudentPage() {
 
   const loadData = async () => {
     if (!appUser) return
-    const [asns, subs, qs, attempts] = await Promise.all([
+    const [asns, subs, qs, attempts, fws] = await Promise.all([
       getAssignmentsByClass(appUser.classId),
       getMySubmissions(appUser.uid),
       getPublishedQuizzesByClass(appUser.schoolId, appUser.semester, appUser.classId),
       getMyAttempts(appUser.uid),
+      getMyFreeWritings(appUser.uid),
     ])
     setAssignments(asns)
     setSubmissions(subs)
     setQuizzes(qs)
     setMyAttempts(attempts)
+    setMyFreeWritings(fws)
   }
 
   useEffect(() => { loadData() }, [appUser])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const getSubForAssignment = (id: string) => submissions.find(s => s.assignmentId === id)
+  const getAttemptsForAssignment = (id: string) => submissions.filter(s => s.assignmentId === id)
 
   const hasAttempted = (quizId: string) => myAttempts.some(a => a.quizId === quizId)
   const getScore = (quizId: string) => {
@@ -99,6 +103,12 @@ export default function StudentPage() {
   const handleViewFeedback = async (sub: Submission) => {
     const fb = await getFeedbackBySubmission(sub.id)
     if (fb?.teacherApproved) setViewFeedback({ feedback: fb, content: sub.content })
+    else showToast('아직 피드백이 준비 중이에요')
+  }
+
+  const handleViewFreeWritingFeedback = async (fw: FreeWriting) => {
+    const fb = await getFeedbackBySubmission(fw.id)
+    if (fb?.teacherApproved) setViewFeedback({ feedback: fb, content: fw.content, isFreeWriting: true })
     else showToast('아직 피드백이 준비 중이에요')
   }
 
@@ -144,6 +154,7 @@ export default function StudentPage() {
 
       setShowFreeWrite(false); setFreeTopic(''); setFreeContent(''); setPasteCount(0)
       showToast('제출됐어요! 선생님이 확인 후 피드백을 보내드려요 😊')
+      getMyFreeWritings(appUser.uid).then(setMyFreeWritings)
     } catch (e) {
       console.error(e)
       showToast('제출 중 오류가 발생했어요. 다시 시도해주세요.')
@@ -198,14 +209,19 @@ export default function StudentPage() {
           {activeTab === 'main' && (
             <>
               {assignments.map(assignment => {
-                const sub = getSubForAssignment(assignment.id)
+                const sub      = getSubForAssignment(assignment.id)       // 최신 제출
+                const attempts = getAttemptsForAssignment(assignment.id)  // 전체 시도
+                const attemptCount = attempts.length
+                const canResubmit  = attemptCount < 2
+                const hasFeedback  = sub && (sub.status === 'feedback_sent' || sub.status === 'read')
+
                 return (
                   <div key={assignment.id} className="bg-gradient-to-br from-indigo-50 to-orange-50 border border-indigo-100 rounded-2xl p-5 mb-4">
                     <div className="flex items-center justify-between mb-2">
                       <span className={`text-xs font-bold px-2.5 py-1 rounded-full
                         ${sub ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                         {sub
-                          ? (sub.status === 'feedback_sent' || sub.status === 'read' ? '✅ 피드백 완료' : '📤 제출 완료')
+                          ? (hasFeedback ? '✅ 피드백 완료' : '📤 제출 완료')
                           : '📌 미제출'}
                       </span>
                       <span className="text-xs text-gray-400">마감: {formatDate(assignment.dueDate)}</span>
@@ -214,22 +230,77 @@ export default function StudentPage() {
                     <div className="bg-white rounded-xl p-3 text-sm leading-relaxed text-gray-700 mb-3">
                       {assignment.description}
                     </div>
-                    {!sub ? (
-                      <button onClick={() => setSelectedAssignment(assignment)}
-                        className="bg-indigo-600 text-white text-sm font-bold px-4 py-2 rounded-xl hover:bg-indigo-700 transition-colors">
-                        ✏️ 과제 제출하기
-                      </button>
-                    ) : (sub.status === 'feedback_sent' || sub.status === 'read') ? (
-                      <button onClick={() => handleViewFeedback(sub)}
-                        className="border-2 border-indigo-200 text-indigo-600 text-sm font-bold px-4 py-2 rounded-xl hover:bg-indigo-50 transition-colors">
-                        피드백 확인하기 →
-                      </button>
-                    ) : (
-                      <span className="text-xs text-gray-400">제출 완료 · 선생님 검토를 기다리고 있어요</span>
+
+                    {attemptCount > 0 && (
+                      <p className="text-[11px] text-gray-400 mb-2">제출 {attemptCount}/2회</p>
                     )}
+
+                    <div className="flex gap-2 flex-wrap items-center">
+                      {!sub ? (
+                        <button onClick={() => setSelectedAssignment(assignment)}
+                          className="bg-indigo-600 text-white text-sm font-bold px-4 py-2 rounded-xl hover:bg-indigo-700 transition-colors">
+                          ✏️ 과제 제출하기
+                        </button>
+                      ) : (
+                        <>
+                          {hasFeedback && (
+                            <button onClick={() => handleViewFeedback(sub)}
+                              className="border-2 border-indigo-200 text-indigo-600 text-sm font-bold px-4 py-2 rounded-xl hover:bg-indigo-50 transition-colors">
+                              피드백 확인하기 →
+                            </button>
+                          )}
+                          {!hasFeedback && (
+                            <span className="text-xs text-gray-400">제출 완료 · 선생님 검토를 기다리고 있어요</span>
+                          )}
+                          {canResubmit && (
+                            <button onClick={() => setSelectedAssignment(assignment)}
+                              className="border-2 border-amber-200 text-amber-600 text-sm font-bold px-4 py-2 rounded-xl hover:bg-amber-50 transition-colors">
+                              🔁 다시 제출하기 ({attemptCount + 1}/2)
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 )
               })}
+              {/* 자유작문 목록 (피드백 확인용) */}
+              {myFreeWritings.length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-sm font-bold text-gray-500 mb-2 px-1">✏️ 내 자유작문</h3>
+                  <div className="space-y-2">
+                    {myFreeWritings.map(fw => {
+                      const fwHasFeedback = fw.status === 'feedback_sent' || fw.status === 'read'
+                      return (
+                        <div key={fw.id} className="bg-white border border-purple-100 rounded-xl p-3.5 flex items-center gap-3">
+                          <span className="text-lg flex-shrink-0">📝</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-800 truncate">
+                              {fw.topic || '자유작문'}
+                            </p>
+                            <p className="text-[11px] text-gray-400">
+                              {fw.submittedAt instanceof Date ? fw.submittedAt.toLocaleDateString('ko-KR') : ''}
+                              {' · '}
+                              {fwHasFeedback ? '✅ 피드백 완료'
+                                : fw.status === 'ai_processing' ? 'AI 분석 중'
+                                : '선생님 검토 대기'}
+                            </p>
+                          </div>
+                          {fwHasFeedback ? (
+                            <button onClick={() => handleViewFreeWritingFeedback(fw)}
+                              className="text-xs font-bold text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition-colors flex-shrink-0">
+                              피드백 보기
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-gray-300 flex-shrink-0">대기 중</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               <BoardFeed/>
             </>
           )}
@@ -321,6 +392,7 @@ export default function StudentPage() {
         {selectedAssignment && (
           <SubmissionEditor
             assignment={selectedAssignment}
+            existingAttempts={getAttemptsForAssignment(selectedAssignment.id).length}
             onClose={() => setSelectedAssignment(null)}
             onSubmit={() => {
               setSelectedAssignment(null)
@@ -333,6 +405,7 @@ export default function StudentPage() {
           <FeedbackViewer
             feedback={viewFeedback.feedback}
             submissionContent={viewFeedback.content}
+            isFreeWriting={viewFeedback.isFreeWriting}
             onClose={() => setViewFeedback(null)}
           />
         )}

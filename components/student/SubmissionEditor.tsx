@@ -10,9 +10,12 @@ interface Props {
   assignment: Assignment
   onClose:   () => void
   onSubmit:  () => void
+  existingAttempts?: number   // 이 과제에 이미 제출한 횟수 (최대 2회 제한용)
 }
 
-export default function SubmissionEditor({ assignment, onClose, onSubmit }: Props) {
+const MAX_ATTEMPTS = 2
+
+export default function SubmissionEditor({ assignment, onClose, onSubmit, existingAttempts = 0 }: Props) {
   const { appUser }                   = useAuth()
   const contentType = assignment.contentType ?? 'freeWriting'
 
@@ -159,6 +162,11 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit }: Prop
   const handleSubmit = async () => {
     if (!appUser) return
 
+    if (existingAttempts >= MAX_ATTEMPTS) {
+      showToast(`이 과제는 최대 ${MAX_ATTEMPTS}회까지만 제출할 수 있어요.`)
+      return
+    }
+
     if (contentType === 'freeWriting') {
       if (content.length < assignment.minChars) {
         showToast(`최소 ${assignment.minChars}자 이상 작성해주세요 (현재 ${content.length}자)`)
@@ -191,6 +199,7 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit }: Prop
         pasteAttempts: pasteRef.current,
         pasteAllowed:  assignment.allowPaste ?? false,
         status:        'submitted',
+        attemptNumber: existingAttempts + 1,
         startedAt:         new Date(startedAtRef.current),
         activeDurationMs:  activeMs,
         totalDurationMs:   totalMs,
@@ -244,7 +253,14 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit }: Prop
     <div className="fixed inset-0 bg-[rgba(30,27,75,0.45)] backdrop-blur-sm z-50 flex items-center justify-center p-5">
       <div className="bg-white rounded-3xl p-8 w-full max-w-[540px] max-h-[90vh] overflow-y-auto shadow-2xl">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="font-bold text-lg">✏️ {assignment.title}</h2>
+          <div>
+            <h2 className="font-bold text-lg">✏️ {assignment.title}</h2>
+            {existingAttempts > 0 && (
+              <p className="text-xs text-amber-500 font-semibold mt-0.5">
+                {existingAttempts + 1}번째 제출 (최대 {MAX_ATTEMPTS}회)
+              </p>
+            )}
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
         </div>
 

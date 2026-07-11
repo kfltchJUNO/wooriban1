@@ -6,11 +6,12 @@ interface Props {
   feedback: Feedback
   submissionContent: string
   onClose: () => void
+  isFreeWriting?: boolean   // true면 freeWritings 컬렉션 상태를 'read'로 갱신
 }
 
-export default function FeedbackViewer({ feedback, submissionContent, onClose }: Props) {
+export default function FeedbackViewer({ feedback, submissionContent, onClose, isFreeWriting }: Props) {
   const handleClose = async () => {
-    await markFeedbackRead(feedback.submissionId)
+    await markFeedbackRead(feedback.submissionId, isFreeWriting ? 'freeWritings' : 'submissions')
     onClose()
   }
 

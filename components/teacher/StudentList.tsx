@@ -1,10 +1,11 @@
 'use client'
 import { useState } from 'react'
 import { AppUser } from '@/types/user'
-import { Submission, FreeWriting } from '@/types/assignment'
+import { Submission, FreeWriting, Assignment } from '@/types/assignment'
 
 interface Props {
   students:     AppUser[]
+  assignments:  Assignment[]
   submissions:  Submission[]
   freeWritings: FreeWriting[]
   onReview:     (studentUid: string, submission: Submission) => void
@@ -23,8 +24,9 @@ const STATUS_CONFIG = {
   unused:            { label: '반 미사용중', color: 'bg-gray-100 text-gray-400',    dot: 'bg-gray-300' },
 }
 
-export default function StudentList({ students, submissions, freeWritings, onReview, onReviewFreeWriting }: Props) {
+export default function StudentList({ students, assignments, submissions, freeWritings, onReview, onReviewFreeWriting }: Props) {
   const [sort, setSort] = useState<'order'|'asc'|'desc'>('order')
+  const [expandedUid, setExpandedUid] = useState<string | null>(null)
 
   const sorted = [...students].sort((a, b) => {
     if (sort === 'order') return a.sortOrder - b.sortOrder
@@ -32,15 +34,33 @@ export default function StudentList({ students, submissions, freeWritings, onRev
     return b.nameKr.localeCompare(a.nameKr)
   })
 
-  const getLatestSub = (uid: string) =>
-    submissions.filter(s => s.studentUid === uid)
-               .sort((a, b) => (b.submittedAt?.getTime?.() ?? 0) - (a.submittedAt?.getTime?.() ?? 0))[0]
+  // 학생의 과제별 제출(모든 시도) 그룹핑
+  const getAssignmentSubs = (uid: string) => {
+    const mine = submissions.filter(s => s.studentUid === uid)
+    return assignments
+      .map(a => ({
+        assignment: a,
+        attempts: mine
+          .filter(s => s.assignmentId === a.id)
+          .sort((x, y) => (y.submittedAt?.getTime?.() ?? 0) - (x.submittedAt?.getTime?.() ?? 0)),
+      }))
+      .filter(g => g.attempts.length > 0)
+  }
 
-  // 학생별 미확인 자유작문 개수 (선생님이 검토 안 한 것들)
   const getPendingFreeWritings = (uid: string) =>
     freeWritings.filter(fw => fw.studentUid === uid &&
       ['pending_approval', 'ai_processing', 'ai_done'].includes(fw.status))
       .sort((a, b) => (b.submittedAt?.getTime?.() ?? 0) - (a.submittedAt?.getTime?.() ?? 0))
+
+  // 요약 배지용: 학생의 대표 상태(가장 최근 활동 기준)
+  const getSummary = (uid: string) => {
+    const groups = getAssignmentSubs(uid)
+    const allAttempts = groups.flatMap(g => g.attempts)
+    const pendingCount = allAttempts.filter(s => s.status === 'ai_done' || s.status === 'submitted').length
+      + getPendingFreeWritings(uid).filter(f => f.status === 'ai_done').length
+    const latest = allAttempts[0]
+    return { pendingCount, latest }
+  }
 
   return (
     <div className="bg-white rounded-[20px] p-6 shadow-md">
@@ -56,16 +76,18 @@ export default function StudentList({ students, submissions, freeWritings, onRev
 
       <div className="space-y-1">
         {sorted.map(student => {
-          const sub = getLatestSub(student.uid)
+          const groups = getAssignmentSubs(student.uid)
           const pendingFW = getPendingFreeWritings(student.uid)
-          const statusKey = (sub?.status ?? (student.status === 'active' ? 'none' : 'unused')) as keyof typeof STATUS_CONFIG
+          const { pendingCount, latest } = getSummary(student.uid)
+          const isExpanded = expandedUid === student.uid
+          const statusKey = (latest?.status ?? (student.status === 'active' ? 'none' : 'unused')) as keyof typeof STATUS_CONFIG
           const cfg = STATUS_CONFIG[statusKey] ?? STATUS_CONFIG.none
 
           return (
             <div key={student.uid} className="rounded-xl hover:bg-gray-50 transition-colors">
-              <div
-                className="flex items-center gap-3 p-3 cursor-pointer"
-                onClick={() => sub && onReview(student.uid, sub)}>
+              <button
+                className="w-full flex items-center gap-3 p-3 text-left"
+                onClick={() => setExpandedUid(isExpanded ? null : student.uid)}>
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-400 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
                   {student.nameKr[0]}
                 </div>
@@ -73,31 +95,67 @@ export default function StudentList({ students, submissions, freeWritings, onRev
                   <div className="text-sm font-bold">{student.nameKr}</div>
                   <div className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
                     <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`}/>
-                    {cfg.label}
-                    {sub?.pasteAttempts ? <span className="text-red-400 ml-1">· 붙여넣기 {sub.pasteAttempts}회</span> : null}
+                    {groups.length}개 과제 제출{pendingFW.length > 0 && ` · 자유작문 ${pendingFW.length}건`}
                   </div>
                 </div>
-                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${cfg.color}`}>{cfg.label}</span>
-              </div>
+                {pendingCount > 0 && (
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
+                    검토 필요 {pendingCount}
+                  </span>
+                )}
+                <span className="text-gray-300 text-xs">{isExpanded ? '접기 ▲' : '펼치기 ▼'}</span>
+              </button>
 
-              {/* 자유작문 — 검토 대기 중인 것들 */}
-              {pendingFW.length > 0 && (
-                <div className="pl-12 pb-2 space-y-1">
-                  {pendingFW.map(fw => {
-                    const fwCfg = STATUS_CONFIG[fw.status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.none
-                    return (
-                      <button key={fw.id} onClick={() => onReviewFreeWriting(student.uid, fw)}
-                        className="w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 transition-colors">
-                        <span className="text-xs">✍️</span>
-                        <span className="text-xs text-purple-700 font-semibold flex-1 truncate">
-                          자유작문 {fw.topic ? `· ${fw.topic}` : ''}
-                        </span>
-                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${fwCfg.color}`}>
-                          {fwCfg.label}
-                        </span>
-                      </button>
-                    )
-                  })}
+              {isExpanded && (
+                <div className="pl-12 pb-3 space-y-2">
+                  {/* 과제별 — 모든 시도 표시 */}
+                  {groups.length === 0 && pendingFW.length === 0 && (
+                    <p className="text-xs text-gray-300 py-1">아직 제출한 게 없어요.</p>
+                  )}
+                  {groups.map(({ assignment, attempts }) => (
+                    <div key={assignment.id} className="space-y-1">
+                      <p className="text-[11px] font-bold text-gray-400">{assignment.title}</p>
+                      {attempts.map((sub, i) => {
+                        const subCfg = STATUS_CONFIG[sub.status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.none
+                        return (
+                          <button key={sub.id} onClick={() => onReview(student.uid, sub)}
+                            className="w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 transition-colors">
+                            <span className="text-[11px] font-bold text-indigo-400 w-8 flex-shrink-0">
+                              {sub.attemptNumber ?? (attempts.length - i)}차
+                            </span>
+                            <span className="text-xs text-gray-500 flex-1 truncate">
+                              {sub.submittedAt instanceof Date ? sub.submittedAt.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                            </span>
+                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${subCfg.color}`}>
+                              {subCfg.label}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ))}
+
+                  {/* 자유작문 */}
+                  {pendingFW.length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-[11px] font-bold text-gray-400">자유작문</p>
+                      {pendingFW.map(fw => {
+                        const fwCfg = STATUS_CONFIG[fw.status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.none
+                        return (
+                          <button key={fw.id} onClick={() => onReviewFreeWriting(student.uid, fw)}
+                            className="w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 transition-colors">
+                            <span className="text-xs">✍️</span>
+                            <span className="text-xs text-purple-700 font-semibold flex-1 truncate">
+                              {fw.topic || '자유작문'}
+                            </span>
+                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${fwCfg.color}`}>
+                              {fwCfg.label}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

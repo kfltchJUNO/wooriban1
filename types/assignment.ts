@@ -71,6 +71,7 @@ export interface Submission {
   pasteAllowed:  boolean   // 과제에서 허용됐는지 여부
   status:        SubmissionStatus
   submittedAt:   Date
+  attemptNumber?: number   // 같은 과제에 대한 몇 번째 제출인지 (1 또는 2, 최대 2회 제한)
 
   // ── 작성 시간 추적 ──────────────────────────────────────────
   startedAt?:       Date    // 작성 화면을 처음 연 시각

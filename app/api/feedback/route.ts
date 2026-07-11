@@ -261,9 +261,15 @@ export async function POST(req: NextRequest) {
     // 맞는지 확인하고 승인/수정하면 그 결과가 AI 정확도 연구 데이터가 됨.
     const needsAudit = errorTags.length > 0 && Math.random() < 0.1
 
-    await adminDb.collection('feedback').add({
+    // ⚠️ 핵심 수정: 문서 ID를 submissionId로 고정.
+    // 기존엔 addDoc(자동 ID)이라 학생이 본인 피드백을 볼 때 where('submissionId'==...) 쿼리를
+    // 써야 했는데, Firestore 보안 규칙은 쿼리에 studentUid 필터가 없으면 "규칙 통과를
+    // 보장 못 한다"며 쿼리 자체를 차단함(Missing or insufficient permissions).
+    // ID를 submissionId로 고정하면 getDoc()으로 바로 읽어서 이 문제가 사라짐.
+    // 재시도(retry) 시에도 같은 ID라 자연스럽게 덮어써짐.
+    await adminDb.collection('feedback').doc(submissionId).set({
       submissionId,
-      studentUid: studentUid ?? null,   // ← 누락돼있던 필드. 이게 없으면 학생이 본인 피드백을 못 읽음
+      studentUid: studentUid ?? null,
       classId: classId ?? null,   // ← 단원별 분석(analysis/errors)이 정확히 범위를 좁힐 수 있도록 추가
       aiFeedback: {
         grammar:     parsed.grammar,

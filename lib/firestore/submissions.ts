@@ -43,6 +43,24 @@ export async function getMySubmissions(studentUid: string): Promise<Submission[]
   }) as Submission)
 }
 
+// 특정 과제에 대한 한 학생의 모든 제출(시도) 조회 — 최대 제출 횟수 체크 + 선생님이 전부 검토하는 데 사용
+export async function getSubmissionsForAssignment(
+  assignmentId: string, studentUid: string
+): Promise<Submission[]> {
+  const q = query(
+    collection(db, 'submissions'),
+    where('assignmentId', '==', assignmentId),
+    where('studentUid', '==', studentUid),
+    orderBy('submittedAt', 'desc')
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map(d => ({
+    id: d.id,
+    ...d.data(),
+    submittedAt: d.data().submittedAt?.toDate?.() ?? new Date(),
+  }) as Submission)
+}
+
 export async function updateSubmissionStatus(id: string, status: SubmissionStatus) {
   await updateDoc(doc(db, 'submissions', id), { status })
 }
@@ -60,6 +78,21 @@ export async function getFreeWritingsByClass(classId: string): Promise<FreeWriti
   const q = query(
     collection(db, 'freeWritings'),
     where('classId', '==', classId),
+    orderBy('submittedAt', 'desc')
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map(d => ({
+    id: d.id,
+    ...d.data(),
+    submittedAt: d.data().submittedAt?.toDate?.() ?? new Date(),
+  }) as FreeWriting)
+}
+
+// 학생 본인의 자유작문 목록 (피드백 확인 버튼 표시용)
+export async function getMyFreeWritings(studentUid: string): Promise<FreeWriting[]> {
+  const q = query(
+    collection(db, 'freeWritings'),
+    where('studentUid', '==', studentUid),
     orderBy('submittedAt', 'desc')
   )
   const snap = await getDocs(q)

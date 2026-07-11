@@ -15,9 +15,10 @@ import RosterManager from '@/components/teacher/RosterManager'
 import { useAuth } from '@/lib/auth/authContext'
 import { getUsersByClass } from '@/lib/firestore/users'
 import { getSubmissionsByClass, getFreeWritingsByClass } from '@/lib/firestore/submissions'
+import { getAssignmentsByClass } from '@/lib/firestore/assignments'
 import { getFeedbackBySubmission } from '@/lib/firestore/feedback'
 import { AppUser } from '@/types/user'
-import { Submission, FreeWriting } from '@/types/assignment'
+import { Submission, FreeWriting, Assignment } from '@/types/assignment'
 import { Feedback } from '@/types/feedback'
 import { formatSchool, formatSemester, formatClass } from '@/lib/utils/classUtils'
 
@@ -43,6 +44,7 @@ function freeWritingToSubmissionShape(fw: FreeWriting): Submission {
 export default function TeacherPage() {
   const { appUser }                   = useAuth()
   const [students,     setStudents]   = useState<AppUser[]>([])
+  const [assignments,  setAssignments]= useState<Assignment[]>([])
   const [submissions,  setSubmissions]= useState<Submission[]>([])
   const [freeWritings, setFreeWritings] = useState<FreeWriting[]>([])
   const [reviewing,    setReviewing]  = useState<{ student: AppUser; sub: Submission; feedback: Feedback | null; isFreeWriting?: boolean } | null>(null)
@@ -57,12 +59,14 @@ export default function TeacherPage() {
 
   const loadData = async () => {
     if (!appUser) return
-    const [s, subs, fws] = await Promise.all([
+    const [s, asns, subs, fws] = await Promise.all([
       getUsersByClass(appUser.classId),
+      getAssignmentsByClass(appUser.classId),
       getSubmissionsByClass(appUser.classId),
       getFreeWritingsByClass(appUser.classId),
     ])
     setStudents(s)
+    setAssignments(asns)
     setSubmissions(subs)
     setFreeWritings(fws)
   }
@@ -147,6 +151,7 @@ export default function TeacherPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <StudentList
                 students={students}
+                assignments={assignments}
                 submissions={submissions}
                 freeWritings={freeWritings}
                 onReview={handleReview}
