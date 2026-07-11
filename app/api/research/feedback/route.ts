@@ -111,6 +111,8 @@ export async function POST(req: NextRequest) {
     })
 
     // 논증 피드백을 대화 스레드의 첫 AI 메시지로도 남겨서 바로 대화 이어갈 수 있게 함
+    // feedbackReadyAt: 학생이 대화를 아예 하지 않고 넘어가는 경우를 대비한 fallback 기준 시각
+    // (재작성 잠금 해제는 "대화 종료 시각" 우선, 없으면 이 시각 기준으로 계산)
     const firstMessage = `${parsed.argumentFeedback.overallImpression}\n\n${parsed.argumentFeedback.counterargument}`
     await adminDb.collection('researchThreads').doc(submissionId).set({
       submissionId,
@@ -118,6 +120,7 @@ export async function POST(req: NextRequest) {
       messages: [{ role: 'ai', text: firstMessage, createdAt: new Date() }],
       studentTurnsUsed: 0,
       closed: false,
+      feedbackReadyAt: new Date(),
     })
 
     await adminDb.collection('researchSubmissions').doc(submissionId).update({ status: 'ai_done' })

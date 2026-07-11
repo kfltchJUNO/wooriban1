@@ -11,8 +11,8 @@ import QuizPlayer from '@/components/student/QuizPlayer'
 import ResearchFormBanner from '@/components/student/ResearchFormBanner'
 import ResearchArgumentEditor from '@/components/student/ResearchArgumentEditor'
 import ResearchFeedbackThread from '@/components/student/ResearchFeedbackThread'
-import { getActiveResearchAssignments, getMyResearchSubmissions } from '@/lib/firestore/research'
-import { ResearchAssignment, ResearchSubmission } from '@/types/research'
+import { getActiveResearchAssignments, getMyResearchSubmissions, getResearchThread, getResubmitUnlockTime } from '@/lib/firestore/research'
+import { ResearchAssignment, ResearchSubmission, ResearchThread } from '@/types/research'
 import { useAuth } from '@/lib/auth/authContext'
 import { getAssignmentsByClass } from '@/lib/firestore/assignments'
 import { getMySubmissions, submitFreeWriting, getMyFreeWritings } from '@/lib/firestore/submissions'
@@ -238,37 +238,11 @@ export default function StudentPage() {
                     {researchAssignments.map(ra => {
                       const attempts = mySubmissions.filter(s => s.assignmentId === ra.id)
                         .sort((a, b) => (a.attemptNumber ?? 1) - (b.attemptNumber ?? 1))
-                      const latest = attempts[attempts.length - 1]
-                      const canResubmit = attempts.length < 2
-                      const hasFeedback = latest?.status === 'ai_done'
                       return (
-                        <div key={ra.id} className="bg-purple-50 border border-purple-100 rounded-xl p-4">
-                          <p className="text-sm font-bold text-gray-800">{ra.title}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">{ra.prompt}</p>
-                          {attempts.length > 0 && (
-                            <p className="text-[11px] text-gray-400 mt-1">제출 {attempts.length}/2회</p>
-                          )}
-                          <div className="flex gap-2 mt-2 flex-wrap">
-                            {!latest && (
-                              <button onClick={() => setOpenArgEditor(ra)}
-                                className="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 px-3 py-1.5 rounded-lg transition-colors">
-                                작성하기
-                              </button>
-                            )}
-                            {latest && hasFeedback && (
-                              <button onClick={() => setOpenThread({ submissionId: latest.id, prompt: ra.prompt })}
-                                className="text-xs font-bold text-purple-600 border border-purple-200 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition-colors">
-                                피드백 및 대화 보기
-                              </button>
-                            )}
-                            {latest && canResubmit && (
-                              <button onClick={() => setOpenArgEditor(ra)}
-                                className="text-xs font-bold text-amber-600 border border-amber-200 px-3 py-1.5 rounded-lg hover:bg-amber-50 transition-colors">
-                                다시 작성하기 ({attempts.length + 1}/2)
-                              </button>
-                            )}
-                          </div>
-                        </div>
+                        <ResearchAssignmentCard key={ra.id} assignment={ra} attempts={attempts}
+                          onWrite={() => setOpenArgEditor(ra)}
+                          onOpenThread={(submissionId) => setOpenThread({ submissionId, prompt: ra.prompt })}
+                        />
                       )
                     })}
                   </div>
@@ -514,5 +488,81 @@ export default function StudentPage() {
         )}
       </div>
     </RoleGuard>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 연구 참여 과제 카드 — 상호작용 지연 조건(즉각형/지연형)에 따라
+// 재작성 버튼의 잠금 상태를 표시함
+// ══════════════════════════════════════════════════════════════════
+function ResearchAssignmentCard({ assignment, attempts, onWrite, onOpenThread }: {
+  assignment:   ResearchAssignment
+  attempts:     ResearchSubmission[]
+  onWrite:      () => void
+  onOpenThread: (submissionId: string) => void
+}) {
+  const [thread, setThread] = useState<ResearchThread | null>(null)
+  const [now, setNow] = useState(Date.now())
+
+  const latest = attempts[attempts.length - 1]
+  const hasFeedback = latest?.status === 'ai_done'
+  const canResubmit = attempts.length < 2
+
+  useEffect(() => {
+    if (latest && hasFeedback) getResearchThread(latest.id).then(setThread)
+  }, [latest?.id, hasFeedback])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 지연형일 때 잠금 해제까지 남은 시간을 실시간으로 갱신
+  useEffect(() => {
+    if (assignment.interactionMode !== 'delayed') return
+    const timer = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(timer)
+  }, [assignment.interactionMode])
+
+  const unlockTime = latest && hasFeedback ? getResubmitUnlockTime(assignment, thread) : null
+  const isLocked = unlockTime !== null && unlockTime.getTime() > now
+
+  const formatRemaining = (target: Date) => {
+    const diffMs = target.getTime() - now
+    const hours = Math.floor(diffMs / (60 * 60 * 1000))
+    const mins  = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000))
+    if (hours > 0) return `${hours}시간 ${mins}분 후`
+    return `${mins}분 후`
+  }
+
+  return (
+    <div className="bg-purple-50 border border-purple-100 rounded-xl p-4">
+      <p className="text-sm font-bold text-gray-800">{assignment.title}</p>
+      <p className="text-xs text-gray-500 mt-0.5">{assignment.prompt}</p>
+      {attempts.length > 0 && (
+        <p className="text-[11px] text-gray-400 mt-1">제출 {attempts.length}/2회</p>
+      )}
+      <div className="flex gap-2 mt-2 flex-wrap items-center">
+        {!latest && (
+          <button onClick={onWrite}
+            className="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 px-3 py-1.5 rounded-lg transition-colors">
+            작성하기
+          </button>
+        )}
+        {latest && hasFeedback && (
+          <button onClick={() => onOpenThread(latest.id)}
+            className="text-xs font-bold text-purple-600 border border-purple-200 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition-colors">
+            피드백 및 대화 보기
+          </button>
+        )}
+        {latest && canResubmit && hasFeedback && (
+          isLocked ? (
+            <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg flex items-center gap-1">
+              🔒 재작성은 {unlockTime && formatRemaining(unlockTime)} 가능해요
+            </span>
+          ) : (
+            <button onClick={onWrite}
+              className="text-xs font-bold text-amber-600 border border-amber-200 px-3 py-1.5 rounded-lg hover:bg-amber-50 transition-colors">
+              다시 작성하기 ({attempts.length + 1}/2)
+            </button>
+          )
+        )}
+      </div>
+    </div>
   )
 }

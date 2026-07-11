@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
       ),
       studentTurnsUsed: newTurnsUsed,
       closed: willClose,
+      ...(willClose ? { closedAt: new Date() } : {}),
     })
 
     return NextResponse.json({ reply: aiReply, closed: willClose, turnsRemaining: MAX_STUDENT_TURNS - newTurnsUsed })

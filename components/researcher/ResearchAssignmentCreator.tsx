@@ -15,6 +15,8 @@ export default function ResearchAssignmentCreator({ onCreated }: Props) {
   const [maxChars, setMaxChars] = useState(2000)
   const [allowPaste, setAllowPaste] = useState(false)
   const [postSurveyUrl, setPostSurveyUrl] = useState('')
+  const [interactionMode, setInteractionMode] = useState<'immediate' | 'delayed'>('delayed')
+  const [delayHours, setDelayHours] = useState(48)
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState('')
 
@@ -24,6 +26,9 @@ export default function ResearchAssignmentCreator({ onCreated }: Props) {
     if (!appUser || !title.trim() || !prompt.trim()) { showToast('제목과 논제를 입력해주세요.'); return }
     const labels = labelsText.split(',').map(s => s.trim()).filter(Boolean)
     if (labels.length === 0) { showToast('구성 항목을 하나 이상 입력해주세요.'); return }
+    if (interactionMode === 'delayed' && (!delayHours || delayHours < 1)) {
+      showToast('지연 시간은 1시간 이상이어야 해요.'); return
+    }
 
     setLoading(true)
     try {
@@ -31,6 +36,8 @@ export default function ResearchAssignmentCreator({ onCreated }: Props) {
         title: title.trim(), prompt: prompt.trim(), argumentLabels: labels,
         minChars, maxChars, allowPaste,
         postSurveyUrl: postSurveyUrl.trim() || undefined,
+        interactionMode,
+        delayHours: interactionMode === 'delayed' ? delayHours : 0,
         isActive: true, createdBy: appUser.uid,
       })
       showToast('연구 과제가 생성됐어요!')
@@ -81,6 +88,43 @@ export default function ResearchAssignmentCreator({ onCreated }: Props) {
           className="w-4 h-4 accent-purple-600 cursor-pointer" />
         <span className="text-sm text-gray-600">붙여넣기 허용</span>
       </label>
+
+      {/* 상호작용 조건 (연구 비교용) */}
+      <div className="border-2 border-indigo-100 bg-indigo-50/40 rounded-xl p-4 space-y-3">
+        <p className="text-xs font-bold text-indigo-500">상호작용 조건</p>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => setInteractionMode('delayed')}
+            className={`p-3 rounded-xl border-2 text-left transition-colors ${
+              interactionMode === 'delayed' ? 'border-indigo-500 bg-white' : 'border-transparent bg-white/50 hover:bg-white'
+            }`}>
+            <p className="text-sm font-bold text-gray-800">⏳ 지연형 (기본)</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">대화는 즉시, 재작성은 일정 시간 후</p>
+          </button>
+          <button type="button" onClick={() => setInteractionMode('immediate')}
+            className={`p-3 rounded-xl border-2 text-left transition-colors ${
+              interactionMode === 'immediate' ? 'border-indigo-500 bg-white' : 'border-transparent bg-white/50 hover:bg-white'
+            }`}>
+            <p className="text-sm font-bold text-gray-800">⚡ 즉각형 (대조군)</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">대화 종료 즉시 재작성 가능</p>
+          </button>
+        </div>
+
+        {interactionMode === 'delayed' && (
+          <div>
+            <label className="text-xs font-bold text-gray-500 block mb-1">
+              재작성 잠금 시간 (대화 종료 기준, 시간 단위)
+            </label>
+            <div className="flex items-center gap-2">
+              <input type="number" min={1} value={delayHours}
+                onChange={e => setDelayHours(Math.max(1, +e.target.value))}
+                className="w-24 border-2 border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400" />
+              <span className="text-xs text-gray-400">시간 (기본 48시간 = 이틀)</span>
+            </div>
+          </div>
+        )}
+      </div>
+
       <button onClick={handleCreate} disabled={loading}
         className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl text-sm transition-colors disabled:opacity-50">
         {loading ? '생성 중...' : '연구 과제 생성'}

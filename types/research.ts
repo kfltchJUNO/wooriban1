@@ -13,6 +13,12 @@ export interface ResearchAssignment {
   isActive:       boolean
   createdBy:      string
   createdAt:      Date
+
+  // ── 상호작용 지연 조건 (연구 조건 비교용) ─────────────────────
+  // 즉각형: 대화 종료 즉시 재작성 가능 (기존 방식, 대조군용)
+  // 지연형(기본값): 대화는 즉시 가능, 재작성은 대화 종료 후 일정 시간 대기
+  interactionMode: 'immediate' | 'delayed'
+  delayHours:      number   // 지연형일 때 재작성 잠금 시간 (기본 48시간)
 }
 
 export interface ResearchArgumentItem {
@@ -72,4 +78,6 @@ export interface ResearchThread {
   messages:     ResearchThreadMessage[]
   studentTurnsUsed: number   // 최대 2회로 제한
   closed:       boolean
+  closedAt?:    Date   // 대화가 종료된 시각 — 재작성 잠금 해제 시점 계산에 우선 사용
+  feedbackReadyAt?: Date   // 첫 피드백 생성 시각 — 학생이 대화를 안 할 경우의 대체 기준
 }
