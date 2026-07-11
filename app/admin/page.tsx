@@ -8,6 +8,8 @@ import TextbookUpload from '@/components/admin/TextbookUpload'
 import TextbookList from '@/components/admin/TextbookList'
 import TeacherCodeManager from '@/components/admin/TeacherCodeManager'
 import SchoolManager from '@/components/admin/SchoolManager'
+import ResearchFormSettingsPanel from '@/components/admin/ResearchFormSettings'
+import ResearchAccountManager from '@/components/admin/ResearchAccountManager'
 import { getAllUsers, getPendingUsers, approveUser, rejectUser, deleteUser, updateFreeWritingEnabled } from '@/lib/firestore/users'
 import { deleteTextbook } from '@/lib/firestore/textbooks'
 import { getAllTeacherCodes } from '@/lib/firestore/teacherCodes'
@@ -17,7 +19,7 @@ import { AppUser } from '@/types/user'
 import { Textbook } from '@/types/textbook'
 import { formatSchool, formatSemester, formatClass } from '@/lib/utils/classUtils'
 
-type Tab = 'users' | 'pending' | 'textbooks' | 'teacherCodes' | 'schools'
+type Tab = 'users' | 'pending' | 'textbooks' | 'teacherCodes' | 'schools' | 'research'
 
 export default function AdminPage() {
   const [tab, setTab]               = useState<Tab>('users')
@@ -141,6 +143,7 @@ export default function AdminPage() {
     { key: 'textbooks',    label: '교재 관리' },
     { key: 'teacherCodes', label: '선생님 코드' },
     { key: 'schools',      label: '학교/반 관리' },
+    { key: 'research',     label: '🔬 연구' },
   ]
 
   return (
@@ -320,6 +323,18 @@ export default function AdminPage() {
           {tab === 'schools' && (
             <div className="bg-white rounded-2xl p-6 shadow-md">
               <SchoolManager />
+            </div>
+          )}
+
+          {/* 연구 (참여 신청 폼 + 연구용 계정) */}
+          {tab === 'research' && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl p-6 shadow-md">
+                <ResearchFormSettingsPanel />
+              </div>
+              <div className="bg-white rounded-2xl p-6 shadow-md">
+                <ResearchAccountManager />
+              </div>
             </div>
           )}
         </main>

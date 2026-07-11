@@ -10,6 +10,8 @@ interface Props {
   freeWritings: FreeWriting[]
   onReview:     (studentUid: string, submission: Submission) => void
   onReviewFreeWriting: (studentUid: string, freeWriting: FreeWriting) => void
+  onlyPending?:    boolean          // true면 검토 필요한 학생만 표시
+  onClearFilter?:  () => void       // 필터 해제 콜백
 }
 
 const STATUS_CONFIG = {
@@ -24,7 +26,10 @@ const STATUS_CONFIG = {
   unused:            { label: '반 미사용중', color: 'bg-gray-100 text-gray-400',    dot: 'bg-gray-300' },
 }
 
-export default function StudentList({ students, assignments, submissions, freeWritings, onReview, onReviewFreeWriting }: Props) {
+export default function StudentList({
+  students, assignments, submissions, freeWritings, onReview, onReviewFreeWriting,
+  onlyPending, onClearFilter,
+}: Props) {
   const [sort, setSort] = useState<'order'|'asc'|'desc'>('order')
   const [expandedUid, setExpandedUid] = useState<string | null>(null)
 
@@ -62,24 +67,52 @@ export default function StudentList({ students, assignments, submissions, freeWr
     return { pendingCount, latest }
   }
 
+  // onlyPending 필터 시: 검토 필요 항목이 있는 학생만, 전부 자동 펼침
+  const visibleStudents = onlyPending
+    ? sorted.filter(s => getSummary(s.uid).pendingCount > 0)
+    : sorted
+
+  const isExpanded = (uid: string) => onlyPending ? true : expandedUid === uid
+  const toggleExpand = (uid: string) => {
+    if (onlyPending) return   // 필터 모드에선 전부 펼쳐진 상태 유지
+    setExpandedUid(expandedUid === uid ? null : uid)
+  }
+
   return (
     <div className="bg-white rounded-[20px] p-6 shadow-md">
       <div className="flex items-center justify-between mb-5">
-        <h2 className="font-bold text-lg">👥 학생 현황</h2>
-        <select value={sort} onChange={e => setSort(e.target.value as 'order'|'asc'|'desc')}
-          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none">
-          <option value="order">출석부 순</option>
-          <option value="asc">이름 오름차순</option>
-          <option value="desc">이름 내림차순</option>
-        </select>
+        <h2 className="font-bold text-lg">
+          👥 학생 현황
+          {onlyPending && <span className="ml-2 text-sm font-normal text-amber-500">· 검토 필요만 보기</span>}
+        </h2>
+        <div className="flex items-center gap-2">
+          {onlyPending && (
+            <button onClick={onClearFilter}
+              className="text-xs font-bold text-gray-400 hover:text-gray-600 underline underline-offset-2">
+              전체 보기
+            </button>
+          )}
+          <select value={sort} onChange={e => setSort(e.target.value as 'order'|'asc'|'desc')}
+            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none">
+            <option value="order">출석부 순</option>
+            <option value="asc">이름 오름차순</option>
+            <option value="desc">이름 내림차순</option>
+          </select>
+        </div>
       </div>
 
+      {onlyPending && visibleStudents.length === 0 && (
+        <div className="text-center text-gray-400 text-sm py-8">
+          🎉 검토할 항목이 모두 처리됐어요!
+        </div>
+      )}
+
       <div className="space-y-1">
-        {sorted.map(student => {
+        {visibleStudents.map(student => {
           const groups = getAssignmentSubs(student.uid)
           const pendingFW = getPendingFreeWritings(student.uid)
           const { pendingCount, latest } = getSummary(student.uid)
-          const isExpanded = expandedUid === student.uid
+          const expanded = isExpanded(student.uid)
           const statusKey = (latest?.status ?? (student.status === 'active' ? 'none' : 'unused')) as keyof typeof STATUS_CONFIG
           const cfg = STATUS_CONFIG[statusKey] ?? STATUS_CONFIG.none
 
@@ -87,7 +120,7 @@ export default function StudentList({ students, assignments, submissions, freeWr
             <div key={student.uid} className="rounded-xl hover:bg-gray-50 transition-colors">
               <button
                 className="w-full flex items-center gap-3 p-3 text-left"
-                onClick={() => setExpandedUid(isExpanded ? null : student.uid)}>
+                onClick={() => toggleExpand(student.uid)}>
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-400 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
                   {student.nameKr[0]}
                 </div>
@@ -103,10 +136,10 @@ export default function StudentList({ students, assignments, submissions, freeWr
                     검토 필요 {pendingCount}
                   </span>
                 )}
-                <span className="text-gray-300 text-xs">{isExpanded ? '접기 ▲' : '펼치기 ▼'}</span>
+                <span className="text-gray-300 text-xs">{expanded ? '접기 ▲' : '펼치기 ▼'}</span>
               </button>
 
-              {isExpanded && (
+              {expanded && (
                 <div className="pl-12 pb-3 space-y-2">
                   {/* 과제별 — 모든 시도 표시 */}
                   {groups.length === 0 && pendingFW.length === 0 && (

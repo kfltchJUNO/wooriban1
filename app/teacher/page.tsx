@@ -47,7 +47,10 @@ export default function TeacherPage() {
   const [assignments,  setAssignments]= useState<Assignment[]>([])
   const [submissions,  setSubmissions]= useState<Submission[]>([])
   const [freeWritings, setFreeWritings] = useState<FreeWriting[]>([])
-  const [reviewing,    setReviewing]  = useState<{ student: AppUser; sub: Submission; feedback: Feedback | null; isFreeWriting?: boolean } | null>(null)
+  const [reviewing,    setReviewing]  = useState<{
+    student: AppUser; sub: Submission; feedback: Feedback | null; isFreeWriting?: boolean
+    previousAttempt?: { submission: Submission; feedback: Feedback | null } | null
+  } | null>(null)
   const [showAssign,   setShowAssign] = useState(false)
   const [showQuizGen,  setShowQuizGen]= useState(false)
   const [showErrorPattern, setShowErrorPattern] = useState(false)
@@ -77,7 +80,21 @@ export default function TeacherPage() {
     const student = students.find(s => s.uid === studentUid)
     if (!student) return
     const fb = await getFeedbackBySubmission(sub.id)
-    setReviewing({ student, sub, feedback: fb })
+
+    // 2차 이상 제출이면 같은 과제의 이전 시도(바로 직전 것)를 찾아서 비교용으로 함께 조회
+    let previousAttempt = null
+    if ((sub.attemptNumber ?? 1) > 1) {
+      const sameAssignment = submissions
+        .filter(s => s.assignmentId === sub.assignmentId && s.studentUid === studentUid && s.id !== sub.id)
+        .sort((a, b) => (b.submittedAt?.getTime?.() ?? 0) - (a.submittedAt?.getTime?.() ?? 0))
+      const prev = sameAssignment[0]
+      if (prev) {
+        const prevFb = await getFeedbackBySubmission(prev.id)
+        previousAttempt = { submission: prev, feedback: prevFb }
+      }
+    }
+
+    setReviewing({ student, sub, feedback: fb, previousAttempt })
   }
 
   // 자유작문 검토 — Submission 형태로 변환해서 같은 FeedbackEditor 재사용
@@ -90,6 +107,7 @@ export default function TeacherPage() {
 
   const pendingReview = submissions.filter(s => s.status === 'ai_done').length
     + freeWritings.filter(f => f.status === 'ai_done').length
+  const [onlyPending, setOnlyPending] = useState(false)
 
   const PANELS: { key: Panel; label: string }[] = [
     { key: 'main',    label: '📋 학생 현황' },
@@ -113,9 +131,10 @@ export default function TeacherPage() {
                 <div className="text-sm opacity-70 mt-0.5">
                   학생 {students.length}명
                   {pendingReview > 0 && (
-                    <span className="ml-2 bg-orange-500 text-white text-xs font-black px-2 py-0.5 rounded-full">
-                      검토 필요 {pendingReview}건
-                    </span>
+                    <button onClick={() => { setPanel('main'); setOnlyPending(true) }}
+                      className="ml-2 bg-orange-500 hover:bg-orange-400 text-white text-xs font-black px-2 py-0.5 rounded-full transition-colors">
+                      검토 필요 {pendingReview}건 →
+                    </button>
                   )}
                 </div>
               </div>
@@ -154,6 +173,8 @@ export default function TeacherPage() {
                 assignments={assignments}
                 submissions={submissions}
                 freeWritings={freeWritings}
+                onlyPending={onlyPending}
+                onClearFilter={() => setOnlyPending(false)}
                 onReview={handleReview}
                 onReviewFreeWriting={handleReviewFreeWriting}
               />
@@ -191,6 +212,8 @@ export default function TeacherPage() {
             submission={reviewing.sub}
             feedback={reviewing.feedback}
             isFreeWriting={reviewing.isFreeWriting}
+            previousAttempt={reviewing.previousAttempt}
+            onFeedbackReady={fb => setReviewing(r => r ? { ...r, feedback: fb } : r)}
             onClose={() => setReviewing(null)}
             onSent={() => { setReviewing(null); loadData(); showToast('피드백이 전송됐어요! 🎉') }}
           />

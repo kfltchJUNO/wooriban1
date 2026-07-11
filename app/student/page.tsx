@@ -8,6 +8,7 @@ import BoardFeed from '@/components/board/BoardFeed'
 import SubmissionEditor from '@/components/student/SubmissionEditor'
 import FeedbackViewer from '@/components/student/FeedbackViewer'
 import QuizPlayer from '@/components/student/QuizPlayer'
+import ResearchFormBanner from '@/components/student/ResearchFormBanner'
 import { useAuth } from '@/lib/auth/authContext'
 import { getAssignmentsByClass } from '@/lib/firestore/assignments'
 import { getMySubmissions, submitFreeWriting, getMyFreeWritings } from '@/lib/firestore/submissions'
@@ -208,6 +209,7 @@ export default function StudentPage() {
           {/* ── 메인 탭 ── */}
           {activeTab === 'main' && (
             <>
+              <ResearchFormBanner />
               {assignments.map(assignment => {
                 const sub      = getSubForAssignment(assignment.id)       // 최신 제출
                 const attempts = getAttemptsForAssignment(assignment.id)  // 전체 시도

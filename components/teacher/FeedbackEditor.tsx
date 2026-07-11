@@ -14,6 +14,8 @@ interface Props {
   onClose: () => void
   onSent: () => void
   isFreeWriting?: boolean   // true면 freeWritings 컬렉션 상태를 갱신
+  previousAttempt?: { submission: Submission; feedback: Feedback | null } | null
+  onFeedbackReady?: (feedback: Feedback) => void   // 재시도 후 폴링으로 결과를 받으면 부모에 알림
 }
 
 const SEVERITY_LABEL: Record<string, { label: string; color: string }> = {
@@ -22,7 +24,9 @@ const SEVERITY_LABEL: Record<string, { label: string; color: string }> = {
   major:    { label: '중요',   color: 'bg-red-100 text-red-700' },
 }
 
-export default function FeedbackEditor({ student, submission, feedback, onClose, onSent, isFreeWriting }: Props) {
+export default function FeedbackEditor({ student, submission, feedback, onClose, onSent, isFreeWriting, previousAttempt, onFeedbackReady }: Props) {
+  const [showCompare, setShowCompare] = useState(false)
+  const [polling, setPolling] = useState(false)
   const [comment, setComment]   = useState(feedback?.teacherComment ?? '')
   const [loading, setLoading]   = useState(false)
   const [retrying, setRetrying] = useState(false)
@@ -71,12 +75,33 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         alert(data.error || '재시도에 실패했어요. 잠시 후 다시 시도해주세요.')
-      } else {
-        alert('다시 생성 중이에요. 잠시 후 새로고침해주세요.')
+        setRetrying(false)
+        return
       }
+      // 새로고침 없이 결과를 자동으로 받아오도록 폴링 시작 (최대 30초, 3초 간격)
+      setRetrying(false)
+      setPolling(true)
+      const { getFeedbackBySubmission } = await import('@/lib/firestore/feedback')
+      let attempts = 0
+      const maxAttempts = 10
+      const poll = async () => {
+        attempts++
+        const fb = await getFeedbackBySubmission(submission.id)
+        if (fb) {
+          setPolling(false)
+          onFeedbackReady?.(fb)
+          return
+        }
+        if (attempts < maxAttempts) {
+          setTimeout(poll, 3000)
+        } else {
+          setPolling(false)
+          alert('아직 준비되지 않았어요. 잠시 후 다시 시도해주세요.')
+        }
+      }
+      setTimeout(poll, 3000)
     } catch {
       alert('재시도 요청 중 오류가 발생했어요.')
-    } finally {
       setRetrying(false)
     }
   }
@@ -162,9 +187,60 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
     <div className="fixed inset-0 bg-[rgba(30,27,75,0.45)] backdrop-blur-sm z-50 flex items-center justify-center p-5">
       <div className="bg-white rounded-3xl p-8 w-full max-w-[580px] max-h-[90vh] overflow-y-auto shadow-2xl">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="font-bold text-lg">📋 {student.nameKr} · 제출물 검토</h2>
+          <div>
+            <h2 className="font-bold text-lg">📋 {student.nameKr} · 제출물 검토</h2>
+            {submission.attemptNumber && submission.attemptNumber > 1 && (
+              <p className="text-xs text-amber-500 font-semibold mt-0.5">{submission.attemptNumber}차 제출</p>
+            )}
+          </div>
           <button onClick={onClose} className="text-gray-400 text-2xl">✕</button>
         </div>
+
+        {/* 이전 시도와 비교 토글 */}
+        {previousAttempt && (
+          <button onClick={() => setShowCompare(v => !v)}
+            className={`w-full mb-4 flex items-center justify-center gap-1.5 text-xs font-bold py-2 rounded-xl border-2 transition-colors ${
+              showCompare ? 'border-indigo-400 bg-indigo-50 text-indigo-600' : 'border-gray-200 text-gray-500 hover:border-indigo-200'
+            }`}>
+            {showCompare ? '비교 닫기 ▲' : '📊 이전 제출과 비교하기 ▼'}
+          </button>
+        )}
+
+        {showCompare && previousAttempt && (
+          <div className="mb-5 border-2 border-indigo-100 rounded-2xl p-4 space-y-3 bg-indigo-50/30">
+            <p className="text-xs font-bold text-indigo-500">
+              {previousAttempt.submission.attemptNumber ?? 1}차 제출 내용
+            </p>
+            <div className="bg-white rounded-xl p-3 text-xs leading-relaxed text-gray-600 max-h-[100px] overflow-y-auto">
+              {previousAttempt.submission.content}
+            </div>
+
+            {previousAttempt.feedback && previousAttempt.feedback.aiFeedback.errorTags && previousAttempt.feedback.aiFeedback.errorTags.length > 0 ? (
+              <div>
+                <p className="text-xs font-bold text-gray-400 mb-1.5">이전 지적 사항</p>
+                <div className="space-y-1.5">
+                  {previousAttempt.feedback.aiFeedback.errorTags.map((tag, i) => {
+                    // 이번 제출에서 같은 카테고리 오류가 또 있는지 확인 → 개선 여부 판단
+                    const stillPresent = errorTags.some(t => t.category === tag.category)
+                    return (
+                      <div key={i} className={`flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg ${
+                        stillPresent ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
+                      }`}>
+                        <span>{stillPresent ? '⚠️' : '✅'}</span>
+                        <span className="flex-1">{tag.category}: {tag.original} → {tag.correction}</span>
+                        <span className="text-[10px] font-bold flex-shrink-0">
+                          {stillPresent ? '반복됨' : '개선됨'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">이전 제출에는 지적된 오류가 없었어요.</p>
+            )}
+          </div>
+        )}
 
         <div className="flex gap-2 mb-4 flex-wrap text-xs text-gray-400 items-center">
           <span className="bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full font-bold">검토 대기</span>
@@ -373,20 +449,28 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
           </>
         ) : (
           <div className="text-center py-8 space-y-3">
-            <p className="text-gray-400 text-sm animate-pulse">AI 피드백 생성 중... 🤖</p>
-            <p className="text-xs text-gray-300">
-              오래 멈춰있다면 AI 처리가 실패했을 수 있어요.
-            </p>
-            <div className="flex gap-2 justify-center">
-              <button onClick={handleRetry} disabled={retrying}
-                className="text-xs font-bold text-indigo-600 border border-indigo-200 px-4 py-2 rounded-xl hover:bg-indigo-50 disabled:opacity-50 transition-colors">
-                {retrying ? '재시도 중...' : '🔄 AI 다시 시도'}
-              </button>
-              <button onClick={() => setManualMode(true)}
-                className="text-xs font-bold text-gray-500 border border-gray-200 px-4 py-2 rounded-xl hover:bg-gray-50 transition-colors">
-                ✏️ 직접 작성하기
-              </button>
-            </div>
+            {polling ? (
+              <>
+                <p className="text-indigo-500 text-sm animate-pulse">🔄 결과를 기다리는 중... 새로고침 안 해도 자동으로 떠요</p>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-400 text-sm animate-pulse">AI 피드백 생성 중... 🤖</p>
+                <p className="text-xs text-gray-300">
+                  오래 멈춰있다면 AI 처리가 실패했을 수 있어요.
+                </p>
+                <div className="flex gap-2 justify-center">
+                  <button onClick={handleRetry} disabled={retrying}
+                    className="text-xs font-bold text-indigo-600 border border-indigo-200 px-4 py-2 rounded-xl hover:bg-indigo-50 disabled:opacity-50 transition-colors">
+                    {retrying ? '요청 중...' : '🔄 AI 다시 시도'}
+                  </button>
+                  <button onClick={() => setManualMode(true)}
+                    className="text-xs font-bold text-gray-500 border border-gray-200 px-4 py-2 rounded-xl hover:bg-gray-50 transition-colors">
+                    ✏️ 직접 작성하기
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

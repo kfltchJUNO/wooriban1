@@ -1,5 +1,5 @@
 // types/user.ts
-export type UserRole   = 'student' | 'teacher' | 'admin'
+export type UserRole   = 'student' | 'teacher' | 'admin' | 'researcher'
 export type UserStatus = 'active' | 'inactive' | 'pending'
 
 // 기존 코드 호환용 별칭 (RoleGuard 등에서 사용)
