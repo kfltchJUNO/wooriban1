@@ -1,29 +1,46 @@
 'use client'
 // app/researcher/page.tsx
-// 연구용 계정 로그인 후 이동하는 페이지. 지금은 자리표시 화면이고,
-// 추후 연구용 과제 생성 / 연구 분석용 AI 설정 등이 여기 추가될 예정.
-
+import { useState } from 'react'
 import RoleGuard from '@/components/auth/RoleGuard'
 import Header from '@/components/layout/Header'
-import { useAuth } from '@/lib/auth/authContext'
+import ResearchAssignmentCreator from '@/components/researcher/ResearchAssignmentCreator'
+import ResearchSubmissionReview from '@/components/researcher/ResearchSubmissionReview'
+
+type Tab = 'create' | 'review'
 
 export default function ResearcherPage() {
-  const { appUser } = useAuth()
+  const [tab, setTab] = useState<Tab>('review')
+  const [refreshKey, setRefreshKey] = useState(0)
 
   return (
     <RoleGuard allowedRoles={['researcher', 'admin']}>
       <div className="min-h-screen bg-[#F5F5FF]">
         <Header />
-        <main className="max-w-[680px] mx-auto px-5 py-10">
-          <div className="bg-white rounded-2xl p-8 shadow-md text-center">
-            <div className="text-4xl mb-4">🔬</div>
-            <h1 className="font-bold text-xl mb-2">연구자 대시보드</h1>
-            <p className="text-sm text-gray-500 mb-1">
-              {appUser?.nameKr}님, 환영합니다.
+        <main className="max-w-[680px] mx-auto px-5 py-8">
+          <div className="mb-5">
+            <h1 className="font-bold text-xl">🔬 연구자 대시보드</h1>
+            <p className="text-sm text-gray-400 mt-0.5">
+              논증문 연구 과제를 만들고 참여자 제출물을 검토해요.
             </p>
-            <p className="text-xs text-gray-400 mt-4">
-              연구용 과제 생성, 분석용 AI 설정 등의 기능이 곧 추가될 예정이에요.
-            </p>
+          </div>
+
+          <div className="flex gap-1 bg-purple-100 p-1 rounded-xl mb-5 w-fit">
+            {([['review', '📋 제출물 확인'], ['create', '➕ 과제 만들기']] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setTab(key)}
+                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
+                  tab === key ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="bg-white rounded-2xl p-6 shadow-md">
+            {tab === 'create' ? (
+              <ResearchAssignmentCreator onCreated={() => { setRefreshKey(k => k + 1); setTab('review') }} />
+            ) : (
+              <ResearchSubmissionReview key={refreshKey} />
+            )}
           </div>
         </main>
       </div>
