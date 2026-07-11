@@ -9,19 +9,26 @@ import { Feedback } from '@/types/feedback'
 // 규칙 엔진이 "모든 결과가 규칙을 통과할지" 사전에 증명 못 해서 쿼리 자체를 차단함.
 // getDoc은 문서 하나를 직접 지정해서 읽으므로 이 문제가 없음.
 export async function getFeedbackBySubmission(submissionId: string): Promise<Feedback | null> {
-  const snap = await getDoc(doc(db, 'feedback', submissionId))
-  if (!snap.exists()) return null
-  const data = snap.data()
-  return {
-    id: snap.id,
-    ...data,
-    aiFeedback: {
-      ...data.aiFeedback,
-      generatedAt: data.aiFeedback?.generatedAt?.toDate?.() ?? new Date(),
-    },
-    sentAt:    data.sentAt?.toDate?.() ?? undefined,
-    auditedAt: data.auditedAt?.toDate?.() ?? undefined,
-  } as Feedback
+  try {
+    const snap = await getDoc(doc(db, 'feedback', submissionId))
+    if (!snap.exists()) return null
+    const data = snap.data()
+    return {
+      id: snap.id,
+      ...data,
+      aiFeedback: {
+        ...data.aiFeedback,
+        generatedAt: data.aiFeedback?.generatedAt?.toDate?.() ?? new Date(),
+      },
+      sentAt:    data.sentAt?.toDate?.() ?? undefined,
+      auditedAt: data.auditedAt?.toDate?.() ?? undefined,
+    } as Feedback
+  } catch (e) {
+    // 규칙 평가 오류 등 예상치 못한 실패는 "아직 피드백 없음"으로 처리해서
+    // 화면이 깨지거나 콘솔에 처리되지 않은 예외가 남지 않게 함
+    console.error('[getFeedbackBySubmission] 조회 실패:', e)
+    return null
+  }
 }
 
 // 선생님이 검토 후 승인 + 코멘트와 함께 전송
