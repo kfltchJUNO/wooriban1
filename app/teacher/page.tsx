@@ -14,20 +14,38 @@ import ErrorPatternViewer from '@/components/teacher/ErrorPatternViewer'
 import RosterManager from '@/components/teacher/RosterManager'
 import { useAuth } from '@/lib/auth/authContext'
 import { getUsersByClass } from '@/lib/firestore/users'
-import { getSubmissionsByClass } from '@/lib/firestore/submissions'
+import { getSubmissionsByClass, getFreeWritingsByClass } from '@/lib/firestore/submissions'
 import { getFeedbackBySubmission } from '@/lib/firestore/feedback'
 import { AppUser } from '@/types/user'
-import { Submission } from '@/types/assignment'
+import { Submission, FreeWriting } from '@/types/assignment'
 import { Feedback } from '@/types/feedback'
 import { formatSchool, formatSemester, formatClass } from '@/lib/utils/classUtils'
 
 type Panel = 'main' | 'quizzes' | 'roster'
 
+// 자유작문도 FeedbackEditor에 넘길 수 있도록 Submission과 동일한 최소 형태로 변환
+// (assignmentId는 자유작문엔 없으니 topic을 대신 담아 표시용으로만 사용)
+function freeWritingToSubmissionShape(fw: FreeWriting): Submission {
+  return {
+    id:            fw.id,
+    assignmentId:  `freeWriting:${fw.topic || '자유작문'}`,
+    studentUid:    fw.studentUid,
+    classId:       fw.classId,
+    content:       fw.content,
+    charCount:     fw.charCount,
+    pasteAttempts: fw.pasteAttempts,
+    pasteAllowed:  false,
+    status:        fw.status as Submission['status'],
+    submittedAt:   fw.submittedAt,
+  }
+}
+
 export default function TeacherPage() {
   const { appUser }                   = useAuth()
   const [students,     setStudents]   = useState<AppUser[]>([])
   const [submissions,  setSubmissions]= useState<Submission[]>([])
-  const [reviewing,    setReviewing]  = useState<{ student: AppUser; sub: Submission; feedback: Feedback | null } | null>(null)
+  const [freeWritings, setFreeWritings] = useState<FreeWriting[]>([])
+  const [reviewing,    setReviewing]  = useState<{ student: AppUser; sub: Submission; feedback: Feedback | null; isFreeWriting?: boolean } | null>(null)
   const [showAssign,   setShowAssign] = useState(false)
   const [showQuizGen,  setShowQuizGen]= useState(false)
   const [showErrorPattern, setShowErrorPattern] = useState(false)
@@ -39,15 +57,17 @@ export default function TeacherPage() {
 
   const loadData = async () => {
     if (!appUser) return
-    const [s, subs] = await Promise.all([
+    const [s, subs, fws] = await Promise.all([
       getUsersByClass(appUser.classId),
       getSubmissionsByClass(appUser.classId),
+      getFreeWritingsByClass(appUser.classId),
     ])
     setStudents(s)
     setSubmissions(subs)
+    setFreeWritings(fws)
   }
 
-  useEffect(() => { loadData() }, [appUser])
+  useEffect(() => { loadData() }, [appUser])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleReview = async (studentUid: string, sub: Submission) => {
     const student = students.find(s => s.uid === studentUid)
@@ -56,7 +76,16 @@ export default function TeacherPage() {
     setReviewing({ student, sub, feedback: fb })
   }
 
+  // 자유작문 검토 — Submission 형태로 변환해서 같은 FeedbackEditor 재사용
+  const handleReviewFreeWriting = async (studentUid: string, fw: FreeWriting) => {
+    const student = students.find(s => s.uid === studentUid)
+    if (!student) return
+    const fb = await getFeedbackBySubmission(fw.id)
+    setReviewing({ student, sub: freeWritingToSubmissionShape(fw), feedback: fb, isFreeWriting: true })
+  }
+
   const pendingReview = submissions.filter(s => s.status === 'ai_done').length
+    + freeWritings.filter(f => f.status === 'ai_done').length
 
   const PANELS: { key: Panel; label: string }[] = [
     { key: 'main',    label: '📋 학생 현황' },
@@ -87,7 +116,6 @@ export default function TeacherPage() {
                 </div>
               </div>
 
-              {/* 액션 버튼 */}
               <div className="flex gap-2 flex-wrap">
                 <button onClick={() => setShowAssign(true)}
                   className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition-colors">
@@ -105,7 +133,6 @@ export default function TeacherPage() {
             </div>
           </div>
 
-          {/* 패널 탭 */}
           <div className="flex gap-1 bg-indigo-100 p-1 rounded-xl mb-5 w-fit">
             {PANELS.map(p => (
               <button key={p.key} onClick={() => setPanel(p.key)}
@@ -116,15 +143,19 @@ export default function TeacherPage() {
             ))}
           </div>
 
-          {/* 학생 현황 패널 */}
           {panel === 'main' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <StudentList students={students} submissions={submissions} onReview={handleReview} />
+              <StudentList
+                students={students}
+                submissions={submissions}
+                freeWritings={freeWritings}
+                onReview={handleReview}
+                onReviewFreeWriting={handleReviewFreeWriting}
+              />
               <BoardFeed />
             </div>
           )}
 
-          {/* 퀴즈 목록 패널 */}
           {panel === 'quizzes' && (
             <div className="bg-white rounded-2xl p-6 shadow-md">
               <div className="flex items-center justify-between mb-5">
@@ -138,7 +169,6 @@ export default function TeacherPage() {
             </div>
           )}
 
-          {/* 출석부 관리 패널 */}
           {panel === 'roster' && appUser && (
             <div className="bg-white rounded-2xl p-6 shadow-md">
               <RosterManager
@@ -150,12 +180,12 @@ export default function TeacherPage() {
           )}
         </main>
 
-        {/* 모달들 */}
         {reviewing && (
           <FeedbackEditor
             student={reviewing.student}
             submission={reviewing.sub}
             feedback={reviewing.feedback}
+            isFreeWriting={reviewing.isFreeWriting}
             onClose={() => setReviewing(null)}
             onSent={() => { setReviewing(null); loadData(); showToast('피드백이 전송됐어요! 🎉') }}
           />
@@ -163,7 +193,7 @@ export default function TeacherPage() {
         {showAssign && (
           <AssignmentModal
             onClose={() => setShowAssign(false)}
-            onCreated={() => { setShowAssign(false); showToast('숙제가 출제됐어요!') }}
+            onCreated={() => { setShowAssign(false); loadData(); showToast('숙제가 출제됐어요!') }}
           />
         )}
         {showQuizGen && (

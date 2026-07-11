@@ -69,3 +69,8 @@ export async function getFreeWritingsByClass(classId: string): Promise<FreeWriti
     submittedAt: d.data().submittedAt?.toDate?.() ?? new Date(),
   }) as FreeWriting)
 }
+
+// 자유작문 상태 변경 (submissions와 컬렉션이 달라서 별도 함수 필요)
+export async function updateFreeWritingStatus(id: string, status: FreeWriting['status']) {
+  await updateDoc(doc(db, 'freeWritings', id), { status })
+}

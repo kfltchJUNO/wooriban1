@@ -1,5 +1,5 @@
 'use client'
-// 📁 app/student/page.tsx  ← 수정: 퀴즈 플레이어 + 퀴즈 목록 추가
+// 📁 app/student/page.tsx
 
 import { useState, useEffect } from 'react'
 import RoleGuard from '@/components/auth/RoleGuard'
@@ -18,6 +18,8 @@ import { Feedback } from '@/types/feedback'
 import { Quiz, QuizAttempt } from '@/types/quiz'
 import { formatDate } from '@/lib/utils/classUtils'
 
+type Tab = 'main' | 'quiz'
+
 export default function StudentPage() {
   const { appUser } = useAuth()
   const [assignments, setAssignments] = useState<Assignment[]>([])
@@ -31,8 +33,9 @@ export default function StudentPage() {
   const [freeTopic, setFreeTopic]     = useState('')
   const [freeContent, setFreeContent] = useState('')
   const [pasteCount, setPasteCount]   = useState(0)
+  const [freeSubmitting, setFreeSubmitting] = useState(false)
   const [toast, setToast]             = useState('')
-  const [activeTab, setActiveTab]     = useState<'main' | 'quiz'>('main')
+  const [activeTab, setActiveTab]     = useState<Tab>('main')
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500) }
 
@@ -50,7 +53,7 @@ export default function StudentPage() {
     setMyAttempts(attempts)
   }
 
-  useEffect(() => { loadData() }, [appUser])
+  useEffect(() => { loadData() }, [appUser])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const getSubForAssignment = (id: string) => submissions.find(s => s.assignmentId === id)
 
@@ -66,16 +69,47 @@ export default function StudentPage() {
     else showToast('아직 피드백이 준비 중이에요')
   }
 
+  // ── 자유작문 제출 ──────────────────────────────────────────────
+  // ⚠️ 기존엔 submitFreeWriting()만 호출하고 /api/feedback을 부르지 않아서
+  // AI 분석이 아예 시작되지 않는 버그가 있었음. 일반 과제와 동일하게
+  // 제출 즉시 화면을 닫고, AI 피드백은 백그라운드로 생성되게 함.
   const handleFreeSubmit = async () => {
     if (!appUser || !freeContent.trim()) return
-    await submitFreeWriting({
-      studentUid: appUser.uid, classId: appUser.classId,
-      topic: freeTopic, content: freeContent,
-      charCount: freeContent.length, pasteAttempts: pasteCount,
-      status: 'pending_approval',
-    })
-    setShowFreeWrite(false); setFreeTopic(''); setFreeContent('')
-    showToast('제출됐어요! 선생님 확인 후 피드백이 도착할 거예요 😊')
+    setFreeSubmitting(true)
+    try {
+      const fwId = await submitFreeWriting({
+        studentUid: appUser.uid, classId: appUser.classId,
+        topic: freeTopic, content: freeContent,
+        charCount: freeContent.length, pasteAttempts: pasteCount,
+        status: 'pending_approval',
+      })
+
+      // AI 피드백 생성 요청 — await 하지 않고 백그라운드로 던짐 (학생을 기다리게 하지 않음)
+      fetch('/api/feedback', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          submissionId:     fwId,
+          content:          freeContent,
+          contentType:      'freeWriting',
+          level:            '고급',
+          assignment:       freeTopic ? `자유작문 (주제: ${freeTopic})` : '자유작문',
+          studentUid:       appUser.uid,
+          classId:          appUser.classId,
+          schoolId:         appUser.schoolId,
+          semester:         appUser.semester,
+          sourceCollection: 'freeWritings',
+        }),
+      }).catch(e => console.error('자유작문 AI 피드백 요청 실패(백그라운드):', e))
+
+      setShowFreeWrite(false); setFreeTopic(''); setFreeContent(''); setPasteCount(0)
+      showToast('제출됐어요! 선생님이 확인 후 피드백을 보내드려요 😊')
+    } catch (e) {
+      console.error(e)
+      showToast('제출 중 오류가 발생했어요. 다시 시도해주세요.')
+    } finally {
+      setFreeSubmitting(false)
+    }
   }
 
   const newQuizCount = quizzes.filter(q => !hasAttempted(q.id)).length
@@ -86,7 +120,7 @@ export default function StudentPage() {
         <Header/>
         <main className="max-w-[680px] mx-auto px-5 py-5">
 
-          {/* 상단 버튼 행 */}
+          {/* 상단 버튼들 */}
           <div className="flex gap-3 mb-5">
             <button onClick={() => assignments[0] && setSelectedAssignment(assignments[0])}
               className="flex-1 bg-gradient-to-r from-indigo-600 to-indigo-500 text-white rounded-2xl px-5 py-4 flex items-center gap-3 font-bold text-sm shadow-lg shadow-indigo-200 hover:-translate-y-0.5 transition-transform">
@@ -108,11 +142,11 @@ export default function StudentPage() {
 
           {/* 탭 */}
           <div className="flex gap-1 bg-indigo-100 p-1 rounded-xl mb-5">
-            {[
-              { key: 'main', label: '📋 홈' },
+            {([
+              { key: 'main', label: '📚 홈' },
               { key: 'quiz', label: `🎯 퀴즈${newQuizCount > 0 ? ` (${newQuizCount})` : ''}` },
-            ].map(({ key, label }) => (
-              <button key={key} onClick={() => setActiveTab(key as any)}
+            ] as { key: Tab; label: string }[]).map(({ key, label }) => (
+              <button key={key} onClick={() => setActiveTab(key)}
                 className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all
                   ${activeTab === key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                 {label}
@@ -123,7 +157,6 @@ export default function StudentPage() {
           {/* ── 메인 탭 ── */}
           {activeTab === 'main' && (
             <>
-              {/* 과제 카드들 */}
               {assignments.map(assignment => {
                 const sub = getSubForAssignment(assignment.id)
                 return (
@@ -144,7 +177,7 @@ export default function StudentPage() {
                     {!sub ? (
                       <button onClick={() => setSelectedAssignment(assignment)}
                         className="bg-indigo-600 text-white text-sm font-bold px-4 py-2 rounded-xl hover:bg-indigo-700 transition-colors">
-                        ✍️ 과제 제출하기
+                        ✏️ 과제 제출하기
                       </button>
                     ) : (sub.status === 'feedback_sent' || sub.status === 'read') ? (
                       <button onClick={() => handleViewFeedback(sub)}
@@ -152,7 +185,7 @@ export default function StudentPage() {
                         피드백 확인하기 →
                       </button>
                     ) : (
-                      <span className="text-xs text-gray-400 animate-pulse">AI 피드백 생성 중... 🤖</span>
+                      <span className="text-xs text-gray-400">제출 완료 · 선생님 검토를 기다리고 있어요</span>
                     )}
                   </div>
                 )
@@ -167,7 +200,7 @@ export default function StudentPage() {
               {quizzes.length === 0 ? (
                 <div className="text-center text-gray-400 py-12 text-sm">
                   <div className="text-4xl mb-3">🎯</div>
-                  아직 배포된 퀴즈가 없어요.<br/>선생님이 퀴즈를 만들면 여기에 나타나요!
+                  아직 배포된 퀴즈가 없어요.<br/>선생님이 퀴즈를 만들면 여기서 확인하세요!
                 </div>
               ) : quizzes.map(quiz => {
                 const attempted  = hasAttempted(quiz.id)
@@ -189,7 +222,7 @@ export default function StudentPage() {
                           {quiz.dueDate && ` · 마감: ${formatDate(quiz.dueDate)}`}
                         </div>
                         {scoreLabel && (
-                          <div className="text-xs font-bold text-green-600 mt-1">내 점수: {scoreLabel}점</div>
+                          <div className="text-xs font-bold text-green-600 mt-1">✅ 점수: {scoreLabel}점</div>
                         )}
                       </div>
                       <button
@@ -220,13 +253,13 @@ export default function StudentPage() {
                 <div>
                   <label className="text-xs font-bold text-gray-400 mb-1.5 block">주제 (선택)</label>
                   <input className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500"
-                    placeholder="예: 나의 여가 시간" value={freeTopic} onChange={e => setFreeTopic(e.target.value)}/>
+                    placeholder="예: 나의 하루 일과" value={freeTopic} onChange={e => setFreeTopic(e.target.value)}/>
                 </div>
                 <div>
                   <label className="text-xs font-bold text-gray-400 mb-1.5 block">내용</label>
                   <textarea
                     className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm min-h-[160px] resize-none outline-none focus:border-indigo-500 font-['Noto_Sans_KR'] leading-relaxed"
-                    placeholder="자유롭게 써보세요. 선생님이 확인 후 AI 피드백을 보내드려요 😊"
+                    placeholder="자유롭게 써 보세요. 제출하면 곧 AI 피드백을 받을 수 있어요."
                     value={freeContent}
                     onChange={e => setFreeContent(e.target.value)}
                     onPaste={e => { e.preventDefault(); setPasteCount(c => c + 1); showToast('⚠️ 복사·붙여넣기는 지원되지 않아요.') }}
@@ -235,11 +268,11 @@ export default function StudentPage() {
                 </div>
               </div>
               <div className="bg-indigo-50 rounded-xl p-3 text-xs text-indigo-700 mb-4">
-                ℹ️ 제출 후 선생님 확인 → AI 피드백 + 선생님 의견이 함께 전달돼요.
+                💡 제출하면 AI 피드백이 만들어지고, 선생님 확인 후 전달돼요.
               </div>
-              <button onClick={handleFreeSubmit}
-                className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl text-sm hover:bg-indigo-700 transition-colors">
-                제출하기 📤
+              <button onClick={handleFreeSubmit} disabled={freeSubmitting || !freeContent.trim()}
+                className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl text-sm hover:bg-indigo-700 transition-colors disabled:opacity-60">
+                {freeSubmitting ? '제출 중...' : '제출하기 🚀'}
               </button>
             </div>
           </div>
@@ -251,7 +284,7 @@ export default function StudentPage() {
             onClose={() => setSelectedAssignment(null)}
             onSubmit={() => {
               setSelectedAssignment(null)
-              showToast('제출 완료! AI 피드백을 생성하고 있어요 🤖')
+              showToast('제출 완료! 곧 피드백을 받을 수 있어요 🎉')
               getMySubmissions(appUser!.uid).then(setSubmissions)
             }}
           />
@@ -269,7 +302,7 @@ export default function StudentPage() {
             onClose={() => setPlayQuiz(null)}
             onComplete={(s, t) => {
               setPlayQuiz(null)
-              showToast(`퀴즈 완료! ${s}/${t}점 🎉`)
+              showToast(`퀴즈 완료! ${s}/${t}개 정답`)
               getMyAttempts(appUser!.uid).then(setMyAttempts)
             }}
           />

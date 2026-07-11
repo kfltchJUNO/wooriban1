@@ -88,7 +88,8 @@ interface UnitData {
 }
 
 function buildPrompt(
-  content: string, level: string, assignment: string, grammar?: string, unit?: UnitData
+  content: string, level: string, assignment: string, grammar?: string, unit?: UnitData,
+  contentType?: string,
 ) {
   const unitContext = unit ? `
 현재 단원 학습 내용:
@@ -97,13 +98,27 @@ function buildPrompt(
 - 관용어: ${unit.idioms?.map(i => i.expression).join(', ') ?? ''}
 ` : ''
 
+  // 대화문일 때는 개별 문장 문법뿐 아니라 대화의 흐름/문맥 자연스러움도 함께 평가
+  const dialogueNote = contentType === 'dialogue' ? `
+
+⚠️ 이 글은 화자가 번갈아 말하는 대화문이야 ("화자명: 대사" 형식으로 줄이 구분돼 있음).
+개별 문장의 문법 오류뿐 아니라, 앞뒤 turn 간의 문맥이 자연스럽게 이어지는지,
+질문에 대한 대답이 상황에 맞는지, 대화 흐름상 어색한 부분은 없는지도 반드시 평가해줘.
+'structure' 항목에는 대화 흐름에 대한 평가를 포함해줘.
+` : contentType === 'sentence' ? `
+
+⚠️ 이 글은 여러 개의 독립된 문장을 모은 것이야 (번호로 구분돼 있음).
+문장들이 서로 이어지는 글이 아니니 'structure' 항목은 "전체 흐름"이 아니라
+"각 문장이 독립적으로 자연스러운지"를 평가해줘.
+` : ''
+
   return `
 너는 한국어 작문 전문 교사야.
 학습자 수준: ${level}
 과제 내용: ${assignment}
 ${grammar ? `타깃 문법: ${grammar}` : ''}
-${unitContext}
-다음 학습자의 작문을 분석해줘:
+${unitContext}${dialogueNote}
+다음 학습자의 글을 분석해줘:
 """
 ${content}
 """
@@ -193,13 +208,18 @@ async function accumulateErrorStats(
 
 export async function POST(req: NextRequest) {
   let submissionIdForRecovery: string | null = null
+  let targetCollectionForRecovery: 'submissions' | 'freeWritings' = 'submissions'
 
   try {
     const {
       submissionId, content, level, assignment, grammar,
-      textbookId, unitId,
+      textbookId, unitId, contentType,
       studentUid, classId, schoolId, semester,   // 오류 통계 집계를 위해 필요
+      sourceCollection,   // 'submissions'(기본) | 'freeWritings' — 어느 컬렉션의 문서인지
     } = await req.json()
+
+    const targetCollection = sourceCollection === 'freeWritings' ? 'freeWritings' : 'submissions'
+    targetCollectionForRecovery = targetCollection
 
     if (!submissionId || !content) {
       return NextResponse.json({ error: '필수 항목 누락' }, { status: 400 })
@@ -216,7 +236,7 @@ export async function POST(req: NextRequest) {
     }
 
     submissionIdForRecovery = submissionId
-    await adminDb.collection('submissions').doc(submissionId).update({ status: 'ai_processing' })
+    await adminDb.collection(targetCollection).doc(submissionId).update({ status: 'ai_processing' })
 
     let unit: UnitData | undefined
     if (textbookId && unitId) {
@@ -228,7 +248,7 @@ export async function POST(req: NextRequest) {
       } catch { /* 교재 데이터 없어도 기본 프롬프트로 계속 진행 */ }
     }
 
-    const prompt = buildPrompt(content, level ?? '고급', assignment, grammar, unit)
+    const prompt = buildPrompt(content, level ?? '고급', assignment, grammar, unit, contentType)
     const raw    = await generateWithRetry(prompt)
     const parsed = JSON.parse(raw) as {
       grammar: string; vocabulary: string; structure: string; positive: string
@@ -262,7 +282,7 @@ export async function POST(req: NextRequest) {
       unitId:           unitId     ?? null,
     })
 
-    await adminDb.collection('submissions').doc(submissionId).update({ status: 'ai_done' })
+    await adminDb.collection(targetCollection).doc(submissionId).update({ status: 'ai_done' })
 
     // 실시간 오류 통계 누적 — 기존 'errorPatterns'(단원별 심층 분석 결과 캐시)와 이름이 겹치지 않도록
     // 별도 컬렉션 'studentErrorStats'에 저장 (학생별 실시간 누적 집계용)
@@ -278,7 +298,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.error('Feedback error:', e)
     if (submissionIdForRecovery) {
-      await adminDb.collection('submissions').doc(submissionIdForRecovery)
+      await adminDb.collection(targetCollectionForRecovery).doc(submissionIdForRecovery)
         .update({ status: 'submitted' })
         .catch(() => {})
     }

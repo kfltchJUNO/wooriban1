@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Submission } from '@/types/assignment'
 import { Feedback, ErrorTag } from '@/types/feedback'
 import { approveFeedback } from '@/lib/firestore/feedback'
-import { updateSubmissionStatus } from '@/lib/firestore/submissions'
+import { updateSubmissionStatus, updateFreeWritingStatus } from '@/lib/firestore/submissions'
 import { doc, updateDoc } from 'firebase/firestore'
 import { db } from '@/firebase/firebaseConfig'
 
@@ -13,6 +13,7 @@ interface Props {
   feedback: Feedback | null
   onClose: () => void
   onSent: () => void
+  isFreeWriting?: boolean   // true면 freeWritings 컬렉션 상태를 갱신
 }
 
 const SEVERITY_LABEL: Record<string, { label: string; color: string }> = {
@@ -21,11 +22,20 @@ const SEVERITY_LABEL: Record<string, { label: string; color: string }> = {
   major:    { label: '중요',   color: 'bg-red-100 text-red-700' },
 }
 
-export default function FeedbackEditor({ student, submission, feedback, onClose, onSent }: Props) {
+export default function FeedbackEditor({ student, submission, feedback, onClose, onSent, isFreeWriting }: Props) {
   const [comment, setComment]   = useState(feedback?.teacherComment ?? '')
   const [loading, setLoading]   = useState(false)
   // 검수(대조군) 상태: 태그별로 '맞음'/'수정 필요' 표시 (오디팅용, 학생에게는 안 보임)
   const [auditChoices, setAuditChoices] = useState<Record<number, 'confirmed' | 'corrected'>>({})
+
+  // AI 피드백 원문 수정 모드
+  const [editingAI, setEditingAI] = useState(false)
+  const [aiDraft, setAiDraft] = useState({
+    positive:   feedback?.aiFeedback?.positive ?? '',
+    grammar:    feedback?.aiFeedback?.grammar ?? '',
+    vocabulary: feedback?.aiFeedback?.vocabulary ?? '',
+    structure:  feedback?.aiFeedback?.structure ?? '',
+  })
 
   const errorTags: ErrorTag[] = feedback?.aiFeedback?.errorTags ?? []
   const needsAudit = feedback?.needsAudit ?? false
@@ -38,6 +48,24 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
     if (!feedback) return
     setLoading(true)
     try {
+      // 선생님이 AI 원문을 수정했으면 feedback 문서의 aiFeedback 필드도 함께 갱신
+      // (teacherEdited 플래그로 "선생님이 손본 피드백"임을 남김 — 연구/투명성 목적)
+      const edited =
+        aiDraft.positive   !== feedback.aiFeedback.positive ||
+        aiDraft.grammar    !== feedback.aiFeedback.grammar ||
+        aiDraft.vocabulary !== feedback.aiFeedback.vocabulary ||
+        aiDraft.structure  !== feedback.aiFeedback.structure
+
+      if (edited) {
+        await updateDoc(doc(db, 'feedback', feedback.id), {
+          'aiFeedback.positive':   aiDraft.positive,
+          'aiFeedback.grammar':    aiDraft.grammar,
+          'aiFeedback.vocabulary': aiDraft.vocabulary,
+          'aiFeedback.structure':  aiDraft.structure,
+          teacherEdited: true,
+        })
+      }
+
       await approveFeedback(feedback.id, comment)
 
       // 검수 대상이었고 선생님이 하나 이상 판정을 남겼으면 결과 저장
@@ -51,7 +79,11 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
         })
       }
 
-      await updateSubmissionStatus(submission.id, 'feedback_sent')
+      if (isFreeWriting) {
+        await updateFreeWritingStatus(submission.id, 'feedback_sent')
+      } else {
+        await updateSubmissionStatus(submission.id, 'feedback_sent')
+      }
       onSent()
     } finally {
       setLoading(false)
@@ -86,18 +118,48 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
         {feedback ? (
           <>
             <div className="bg-indigo-50 rounded-2xl p-5 mb-4">
-              <h3 className="text-sm font-bold text-indigo-700 mb-3">🤖 AI 피드백</h3>
-              {[
-                ['✅ 잘한 점', feedback.aiFeedback.positive],
-                ['📝 문법',    feedback.aiFeedback.grammar],
-                ['📚 어휘',    feedback.aiFeedback.vocabulary],
-                ['🏗️ 구조',   feedback.aiFeedback.structure],
-              ].map(([l, t]) => (
-                <div key={l} className="mb-2.5 last:mb-0">
-                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-0.5">{l}</div>
-                  <div className="text-sm text-gray-800">{t}</div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-indigo-700">🤖 AI 피드백</h3>
+                <button onClick={() => setEditingAI(v => !v)}
+                  className="text-xs font-bold text-indigo-500 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors">
+                  {editingAI ? '완료' : '✏️ 수정하기'}
+                </button>
+              </div>
+
+              {editingAI ? (
+                <div className="space-y-3">
+                  {([
+                    ['positive',   '✅ 잘한 점'],
+                    ['grammar',    '📝 문법'],
+                    ['vocabulary', '📚 어휘'],
+                    ['structure',  '🏗️ 구조'],
+                  ] as const).map(([key, label]) => (
+                    <div key={key}>
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1 block">{label}</label>
+                      <textarea
+                        className="w-full border border-indigo-200 rounded-lg p-2.5 text-sm resize-none outline-none focus:border-indigo-500 bg-white"
+                        rows={2}
+                        value={aiDraft[key]}
+                        onChange={e => setAiDraft(prev => ({ ...prev, [key]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <>
+                  {[
+                    ['✅ 잘한 점', aiDraft.positive],
+                    ['📝 문법',    aiDraft.grammar],
+                    ['📚 어휘',    aiDraft.vocabulary],
+                    ['🏗️ 구조',   aiDraft.structure],
+                  ].map(([l, t]) => (
+                    <div key={l} className="mb-2.5 last:mb-0">
+                      <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-0.5">{l}</div>
+                      <div className="text-sm text-gray-800">{t}</div>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
 
             {/* 구조화된 오류 태그 목록 */}

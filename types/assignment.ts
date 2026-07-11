@@ -7,6 +7,9 @@ export type SubmissionStatus =
   | 'feedback_sent'
   | 'read'
 
+// ── 과제 콘텐츠 유형 ──────────────────────────────────────────────
+export type AssignmentContentType = 'freeWriting' | 'sentence' | 'dialogue'
+
 export interface Assignment {
   id:          string
   schoolId:    string
@@ -23,6 +26,10 @@ export interface Assignment {
   label:       string
   createdAt:   Date
   allowPaste:  boolean   // 붙여넣기 허용 여부 (기본 false)
+
+  contentType: AssignmentContentType   // 기본 'freeWriting' (기존 과제 호환)
+  itemCount?:  number                  // 문장/대화문일 때 입력 칸 개수
+  speakers?:   string[]                // 대화문일 때 화자 이름 목록 (기본 ["가","나"])
 }
 
 // ── 붙여넣기/편집 로그 항목 ───────────────────────────────────────
@@ -44,12 +51,21 @@ export interface EditLogEntry {
 
 export type LogEntry = PasteLogEntry | EditLogEntry
 
+// 문장/대화문 제출 시 항목별로 구조화해서 함께 저장 (AI 프롬프트 구성에 사용)
+export interface SubmissionItem {
+  index:   number
+  speaker?: string   // 대화문일 때만 (예: "민정")
+  text:    string
+}
+
 export interface Submission {
   id:            string
   assignmentId:  string
   studentUid:    string
   classId:       string
-  content:       string
+  content:       string          // 최종 합쳐진 텍스트 (기존 화면/검색 호환용)
+  items?:        SubmissionItem[] // 문장/대화문일 때 구조화된 원본 (선택)
+  contentType?:  AssignmentContentType
   charCount:     number
   pasteAttempts: number    // 붙여넣기 시도 횟수 (허용/금지 모두 카운트)
   pasteAllowed:  boolean   // 과제에서 허용됐는지 여부

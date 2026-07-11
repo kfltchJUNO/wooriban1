@@ -48,4 +48,7 @@ export interface Feedback {
   auditResult?:  'confirmed' | 'corrected'
   auditedAt?:    Date
   auditDetail?:  Record<number, AuditChoice>
+
+  // 선생님이 AI 피드백 원문을 직접 수정했는지 (투명성 목적)
+  teacherEdited?: boolean
 }

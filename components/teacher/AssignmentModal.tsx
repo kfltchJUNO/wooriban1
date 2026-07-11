@@ -4,12 +4,18 @@ import { useState } from 'react'
 import { useAuth } from '@/lib/auth/authContext'
 import { createAssignment } from '@/lib/firestore/assignments'
 import { generateAssignmentLabel } from '@/lib/utils/classUtils'
-import { Assignment } from '@/types/assignment'
+import { Assignment, AssignmentContentType } from '@/types/assignment'
 
 interface Props {
   onClose:   () => void
   onCreated: () => void
 }
+
+const CONTENT_TYPES: { value: AssignmentContentType; label: string; desc: string }[] = [
+  { value: 'freeWriting', label: '📝 자유글',  desc: '한 편의 글을 자유롭게 작성' },
+  { value: 'sentence',    label: '✏️ 문장',    desc: '지정한 개수만큼 문장을 각각 작성' },
+  { value: 'dialogue',    label: '💬 대화문',  desc: '화자를 나눠 대화를 주고받는 형식' },
+]
 
 export default function AssignmentModal({ onClose, onCreated }: Props) {
   const { appUser }           = useAuth()
@@ -23,9 +29,35 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
   const [loading, setLoading] = useState(false)
   const [err, setErr]         = useState('')
 
+  // ── 콘텐츠 유형 ──────────────────────────────────────────────
+  const [contentType, setContentType] = useState<AssignmentContentType>('freeWriting')
+  const [itemCount,   setItemCount]   = useState(5)      // 문장/대화문 항목 개수
+  const [speakerText, setSpeakerText] = useState('가, 나') // 쉼표로 구분 입력
+
+  const handleContentTypeChange = (type: AssignmentContentType) => {
+    setContentType(type)
+    if (type === 'freeWriting') {
+      // 자유글은 글자 수 기준이 자연스러움
+      setMin(150); setMax(2000)
+    } else {
+      // 문장/대화문은 항목 단위라 글자 수 제한은 넉넉하게 (항목당이 아니라 전체 합산 기준)
+      setMin(0); setMax(3000)
+    }
+  }
+
+  const speakers = speakerText.split(',').map(s => s.trim()).filter(Boolean)
+
   const handleCreate = async () => {
     if (!appUser || !title || !desc || !dueDate) {
       setErr('제목, 내용, 마감일을 모두 입력해주세요')
+      return
+    }
+    if (contentType !== 'freeWriting' && (!itemCount || itemCount < 1)) {
+      setErr('문항 개수를 1개 이상 입력해주세요')
+      return
+    }
+    if (contentType === 'dialogue' && speakers.length < 2) {
+      setErr('대화문은 화자가 2명 이상 필요해요 (예: 가, 나)')
       return
     }
     setLoading(true)
@@ -46,8 +78,12 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
         isActive:    true,
         label,
         allowPaste,
+        contentType,
       }
       if (grammar.trim()) assignmentData.grammar = grammar.trim()
+      if (contentType !== 'freeWriting') assignmentData.itemCount = itemCount
+      if (contentType === 'dialogue')    assignmentData.speakers  = speakers
+
       await createAssignment(assignmentData)
       onCreated()
     } catch (e) {
@@ -65,6 +101,51 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
         </div>
 
         <div className="space-y-4">
+          {/* 콘텐츠 유형 선택 */}
+          <div>
+            <label className="text-xs font-bold text-gray-400 mb-1.5 block">과제 유형</label>
+            <div className="grid grid-cols-3 gap-2">
+              {CONTENT_TYPES.map(t => (
+                <button key={t.value} type="button" onClick={() => handleContentTypeChange(t.value)}
+                  className={`p-2.5 rounded-xl border-2 text-center transition-colors ${
+                    contentType === t.value ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'
+                  }`}>
+                  <p className="text-sm font-bold text-gray-800">{t.label}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{t.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 문장/대화문 세부 설정 */}
+          {contentType !== 'freeWriting' && (
+            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3.5 space-y-3">
+              <div>
+                <label className="text-xs font-bold text-gray-500 block mb-1">
+                  {contentType === 'sentence' ? '문장 개수' : '대화 턴(주고받는 횟수)'}
+                </label>
+                <input type="number" min={1} max={30}
+                  className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                  value={itemCount} onChange={e => setItemCount(Math.max(1, +e.target.value))} />
+              </div>
+
+              {contentType === 'dialogue' && (
+                <div>
+                  <label className="text-xs font-bold text-gray-500 block mb-1">
+                    화자 이름 <span className="font-normal text-gray-400">(쉼표로 구분, 기본 가/나)</span>
+                  </label>
+                  <input
+                    className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                    value={speakerText} onChange={e => setSpeakerText(e.target.value)}
+                    placeholder="가, 나  또는  민정, 민용" />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    턴마다 화자가 번갈아 등장해요 (예: {speakers[0] || '가'} → {speakers[1] || '나'} → {speakers[0] || '가'} ...)
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="text-xs font-bold text-gray-400 mb-1.5 block">과제 제목</label>
             <input className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500"
@@ -88,20 +169,22 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
               placeholder="예: V-느니" />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-bold text-gray-400 mb-1.5 block">최소 글자 수</label>
-              <input type="number"
-                className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500"
-                value={minChars} onChange={e => setMin(+e.target.value)} />
+          {contentType === 'freeWriting' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-bold text-gray-400 mb-1.5 block">최소 글자 수</label>
+                <input type="number"
+                  className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500"
+                  value={minChars} onChange={e => setMin(+e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-400 mb-1.5 block">최대 글자 수</label>
+                <input type="number"
+                  className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500"
+                  value={maxChars} onChange={e => setMax(+e.target.value)} />
+              </div>
             </div>
-            <div>
-              <label className="text-xs font-bold text-gray-400 mb-1.5 block">최대 글자 수</label>
-              <input type="number"
-                className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500"
-                value={maxChars} onChange={e => setMax(+e.target.value)} />
-            </div>
-          </div>
+          )}
 
           <div>
             <label className="text-xs font-bold text-gray-400 mb-1.5 block">마감일</label>
