@@ -341,6 +341,18 @@ export default function AdminPage() {
           {/* 연구 (참여 신청 폼 + 신청자 목록 + 연구용 계정) */}
           {tab === 'research' && (
             <div className="space-y-4">
+              <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-2xl p-5 flex items-center justify-between">
+                <div>
+                  <p className="text-white font-bold text-sm">📝 연구 과제 만들기 · 제출물 검토</p>
+                  <p className="text-white/70 text-xs mt-0.5">
+                    논증 과제 생성과 참여자 제출물 확인은 별도의 연구자 대시보드에서 진행해요.
+                  </p>
+                </div>
+                <a href="/researcher" target="_blank" rel="noopener noreferrer"
+                  className="bg-white text-purple-600 text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-purple-50 transition-colors whitespace-nowrap">
+                  연구자 대시보드 열기 →
+                </a>
+              </div>
               <div className="bg-white rounded-2xl p-6 shadow-md">
                 <ResearchFormSettingsPanel />
               </div>
