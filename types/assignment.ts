@@ -71,6 +71,11 @@ export interface Submission {
   pasteAllowed:  boolean   // 과제에서 허용됐는지 여부
   status:        SubmissionStatus
   submittedAt:   Date
+
+  // ── 작성 시간 추적 ──────────────────────────────────────────
+  startedAt?:       Date    // 작성 화면을 처음 연 시각
+  activeDurationMs?: number // 화면이 보이는(포커스된) 상태로 누적된 시간(ms)
+  totalDurationMs?:  number // 시작~제출까지 전체 경과 시간(ms, 자리 비운 시간 포함)
 }
 
 // 붙여넣기 로그는 별도 컬렉션으로 분리 (1MB 문서 제한 방지)
@@ -94,4 +99,8 @@ export interface FreeWriting {
   pasteAttempts: number
   status:        'pending_approval' | 'ai_processing' | 'ai_done' | 'feedback_sent' | 'read'
   submittedAt:   Date
+
+  startedAt?:        Date
+  activeDurationMs?: number
+  totalDurationMs?:  number
 }

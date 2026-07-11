@@ -298,8 +298,10 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.error('Feedback error:', e)
     if (submissionIdForRecovery) {
+      // 컬렉션별로 유효한 상태가 다름 (submissions: 'submitted', freeWritings: 'pending_approval')
+      const recoveryStatus = targetCollectionForRecovery === 'freeWritings' ? 'pending_approval' : 'submitted'
       await adminDb.collection(targetCollectionForRecovery).doc(submissionIdForRecovery)
-        .update({ status: 'submitted' })
+        .update({ status: recoveryStatus })
         .catch(() => {})
     }
     return NextResponse.json({ error: 'AI 피드백 생성 실패' }, { status: 500 })

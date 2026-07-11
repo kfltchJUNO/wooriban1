@@ -32,6 +32,44 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit }: Prop
   const logsRef    = useRef<LogEntry[]>([])
   const textareaRef= useRef<HTMLTextAreaElement>(null)
 
+  // ── 작성 시간 추적 ────────────────────────────────────────────
+  const startedAtRef      = useRef<number>(Date.now())          // 화면 처음 연 시각
+  const activeMsRef       = useRef<number>(0)                    // 누적 활성(포커스) 시간
+  const lastVisibleAtRef  = useRef<number | null>(Date.now())    // 현재 활성 구간 시작 시각(비활성이면 null)
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      const now = Date.now()
+      if (document.visibilityState === 'visible') {
+        // 다시 보이기 시작 — 활성 구간 시작점 기록
+        lastVisibleAtRef.current = now
+      } else {
+        // 화면을 벗어남 — 지금까지의 활성 구간을 누적하고 중단
+        if (lastVisibleAtRef.current !== null) {
+          activeMsRef.current += now - lastVisibleAtRef.current
+          lastVisibleAtRef.current = null
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      // 언마운트 시 마지막 활성 구간도 정산
+      if (lastVisibleAtRef.current !== null) {
+        activeMsRef.current += Date.now() - lastVisibleAtRef.current
+      }
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [])
+
+  // 제출 시점 활성 시간 최종 계산 (아직 벗어나지 않은 현재 구간까지 포함)
+  const finalizeActiveMs = () => {
+    if (lastVisibleAtRef.current !== null) {
+      activeMsRef.current += Date.now() - lastVisibleAtRef.current
+      lastVisibleAtRef.current = Date.now()
+    }
+    return activeMsRef.current
+  }
+
   const showToast = (msg: string) => {
     setToast(msg); setTimeout(() => setToast(''), 2500)
   }
@@ -138,6 +176,9 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit }: Prop
     setLoading(true)
     try {
       const { content: finalContent, submissionItems } = buildFinalContent()
+      const submitTime  = Date.now()
+      const activeMs     = finalizeActiveMs()
+      const totalMs      = submitTime - startedAtRef.current
 
       const subId = await submitAssignment({
         assignmentId:  assignment.id,
@@ -150,6 +191,9 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit }: Prop
         pasteAttempts: pasteRef.current,
         pasteAllowed:  assignment.allowPaste ?? false,
         status:        'submitted',
+        startedAt:         new Date(startedAtRef.current),
+        activeDurationMs:  activeMs,
+        totalDurationMs:   totalMs,
       })
 
       if (assignment.allowPaste && logsRef.current.length > 0) {

@@ -1,7 +1,7 @@
 'use client'
 // 📁 app/student/page.tsx
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import RoleGuard from '@/components/auth/RoleGuard'
 import Header from '@/components/layout/Header'
 import BoardFeed from '@/components/board/BoardFeed'
@@ -34,6 +34,39 @@ export default function StudentPage() {
   const [freeContent, setFreeContent] = useState('')
   const [pasteCount, setPasteCount]   = useState(0)
   const [freeSubmitting, setFreeSubmitting] = useState(false)
+
+  // ── 자유작문 작성 시간 추적 ────────────────────────────────────
+  const fwStartedAtRef     = useRef<number | null>(null)
+  const fwActiveMsRef      = useRef<number>(0)
+  const fwLastVisibleAtRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!showFreeWrite) return
+    // 모달이 열릴 때 시작 시각 기록 + 활성 시간 초기화
+    fwStartedAtRef.current     = Date.now()
+    fwActiveMsRef.current      = 0
+    fwLastVisibleAtRef.current = Date.now()
+
+    const handleVisibility = () => {
+      const now = Date.now()
+      if (document.visibilityState === 'visible') {
+        fwLastVisibleAtRef.current = now
+      } else if (fwLastVisibleAtRef.current !== null) {
+        fwActiveMsRef.current += now - fwLastVisibleAtRef.current
+        fwLastVisibleAtRef.current = null
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [showFreeWrite])
+
+  const finalizeFwActiveMs = () => {
+    if (fwLastVisibleAtRef.current !== null) {
+      fwActiveMsRef.current += Date.now() - fwLastVisibleAtRef.current
+      fwLastVisibleAtRef.current = Date.now()
+    }
+    return fwActiveMsRef.current
+  }
   const [toast, setToast]             = useState('')
   const [activeTab, setActiveTab]     = useState<Tab>('main')
 
@@ -77,11 +110,18 @@ export default function StudentPage() {
     if (!appUser || !freeContent.trim()) return
     setFreeSubmitting(true)
     try {
+      const submitTime = Date.now()
+      const activeMs   = finalizeFwActiveMs()
+      const totalMs    = fwStartedAtRef.current ? submitTime - fwStartedAtRef.current : undefined
+
       const fwId = await submitFreeWriting({
         studentUid: appUser.uid, classId: appUser.classId,
         topic: freeTopic, content: freeContent,
         charCount: freeContent.length, pasteAttempts: pasteCount,
         status: 'pending_approval',
+        startedAt:        fwStartedAtRef.current ? new Date(fwStartedAtRef.current) : undefined,
+        activeDurationMs: activeMs,
+        totalDurationMs:  totalMs,
       })
 
       // AI 피드백 생성 요청 — await 하지 않고 백그라운드로 던짐 (학생을 기다리게 하지 않음)
