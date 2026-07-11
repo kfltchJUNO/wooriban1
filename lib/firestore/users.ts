@@ -43,7 +43,7 @@ export async function rejectUser(uid: string) {
   await deleteDoc(doc(db, 'users', uid))
 }
 
-// ── 학생 삭제 (관리자) ────────────────────────────────────────────
+// ── 학생 삭제 (관리자) ───────────────────────────────────────────
 export async function deleteUser(uid: string) {
   await deleteDoc(doc(db, 'users', uid))
 }
@@ -54,6 +54,11 @@ export async function updateNickname(uid: string, nickname: string) {
 
 export async function updateFreeWritingEnabled(uid: string, enabled: boolean) {
   await updateDoc(doc(db, 'users', uid), { freeWritingEnabled: enabled })
+}
+
+// 연구 참여자 지정/해제 (관리자가 구글폼 신청자와 매칭 후 설정)
+export async function updateResearchParticipant(uid: string, enabled: boolean) {
+  await updateDoc(doc(db, 'users', uid), { researchParticipant: enabled })
 }
 
 export async function getAllUsers(): Promise<AppUser[]> {

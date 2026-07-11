@@ -10,7 +10,8 @@ import TeacherCodeManager from '@/components/admin/TeacherCodeManager'
 import SchoolManager from '@/components/admin/SchoolManager'
 import ResearchFormSettingsPanel from '@/components/admin/ResearchFormSettings'
 import ResearchAccountManager from '@/components/admin/ResearchAccountManager'
-import { getAllUsers, getPendingUsers, approveUser, rejectUser, deleteUser, updateFreeWritingEnabled } from '@/lib/firestore/users'
+import ResearchApplicantsPanel from '@/components/admin/ResearchApplicantsPanel'
+import { getAllUsers, getPendingUsers, approveUser, rejectUser, deleteUser, updateFreeWritingEnabled, updateResearchParticipant } from '@/lib/firestore/users'
 import { deleteTextbook } from '@/lib/firestore/textbooks'
 import { getAllTeacherCodes } from '@/lib/firestore/teacherCodes'
 import { updateDoc, doc, collection, query, where, getDocs } from 'firebase/firestore'
@@ -200,6 +201,7 @@ export default function AdminPage() {
                     <th className="text-left pb-3 px-3">역할</th>
                     <th className="text-left pb-3 px-3">소속</th>
                     <th className="text-left pb-3 px-3">자유작문</th>
+                    <th className="text-left pb-3 px-3">🔬 연구</th>
                     <th className="text-left pb-3 px-3">관리</th>
                   </tr>
                 </thead>
@@ -225,6 +227,16 @@ export default function AdminPage() {
                             <span className="text-xs">{user.freeWritingEnabled ? '활성' : '비활성'}</span>
                           </label>
                         )}
+                      </td>
+                      <td className="py-3 px-3">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={!!user.researchParticipant}
+                            onChange={async e => { await updateResearchParticipant(user.uid, e.target.checked); loadAll() }}
+                            className="w-4 h-4 cursor-pointer accent-purple-600"/>
+                          <span className={`text-xs ${user.researchParticipant ? 'text-purple-600 font-bold' : 'text-gray-400'}`}>
+                            {user.researchParticipant ? '참여자' : '-'}
+                          </span>
+                        </label>
                       </td>
                       <td className="py-3 px-3">
                         {user.role !== 'admin' && (
@@ -326,11 +338,14 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* 연구 (참여 신청 폼 + 연구용 계정) */}
+          {/* 연구 (참여 신청 폼 + 신청자 목록 + 연구용 계정) */}
           {tab === 'research' && (
             <div className="space-y-4">
               <div className="bg-white rounded-2xl p-6 shadow-md">
                 <ResearchFormSettingsPanel />
+              </div>
+              <div className="bg-white rounded-2xl p-6 shadow-md">
+                <ResearchApplicantsPanel />
               </div>
               <div className="bg-white rounded-2xl p-6 shadow-md">
                 <ResearchAccountManager />

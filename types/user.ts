@@ -36,4 +36,7 @@ export interface AppUser {
   // 학습 데이터 연구 활용 동의 (학생 가입 시 필수)
   researchConsent?:   boolean
   researchConsentAt?: Date
+
+  // 관리자가 지정하는 연구 참여자 여부 (구글폼 매칭 후 설정)
+  researchParticipant?: boolean
 }

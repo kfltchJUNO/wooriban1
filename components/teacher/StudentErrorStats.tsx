@@ -27,6 +27,7 @@ export interface StudentInfo {
   uid:      string
   nameKr:   string
   nickname: string
+  researchParticipant?: boolean
 }
 
 export const CATEGORY_COLOR: Record<string, string> = {
@@ -80,9 +81,16 @@ function nameOf(students: StudentInfo[], uid: string) {
 }
 
 // 익명화 CSV 내보내기 (연구용) — 실명 대신 uid 앞 8자리만 사용
-export function exportErrorPatternsCsv(patterns: ErrorPatternDoc[], classId: string) {
+// participantUids가 주어지면 그 목록에 속한 학생 데이터만 내보냄 (연구 참여자 전용 필터)
+export function exportErrorPatternsCsv(
+  patterns: ErrorPatternDoc[], classId: string, participantUids?: Set<string>
+) {
+  const target = participantUids
+    ? patterns.filter(p => participantUids.has(p.studentUid))
+    : patterns
+
   const rows: string[] = ['익명ID,전체제출수,전체오류수,' + ERROR_CATEGORIES.join(',')]
-  patterns.forEach(p => {
+  target.forEach(p => {
     const anonId = p.studentUid.slice(0, 8)
     const counts = ERROR_CATEGORIES.map(cat => p.categoryCounts?.[cat] ?? 0)
     rows.push([anonId, p.totalSubmissions ?? 0, p.totalErrorsTagged ?? 0, ...counts].join(','))
@@ -91,7 +99,7 @@ export function exportErrorPatternsCsv(patterns: ErrorPatternDoc[], classId: str
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')
   a.href = url
-  a.download = `error-patterns-${classId}-${new Date().toISOString().slice(0, 10)}.csv`
+  a.download = `error-patterns-${classId}${participantUids ? '-participants' : ''}-${new Date().toISOString().slice(0, 10)}.csv`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -190,7 +198,15 @@ export function ErrorDetailView({
   classId:          string
 }) {
   const [selectedUid, setSelectedUid] = useState<string | null>(null)
+  const [participantsOnly, setParticipantsOnly] = useState(false)
   const maxCount = sortedCategories[0]?.count ?? 1
+
+  const participantUids = new Set(students.filter(s => s.researchParticipant).map(s => s.uid))
+  const hasParticipants = participantUids.size > 0
+
+  const handleExport = () => {
+    exportErrorPatternsCsv(patterns, classId, participantsOnly ? participantUids : undefined)
+  }
 
   if (patterns.length === 0) {
     return (
@@ -204,17 +220,27 @@ export function ErrorDetailView({
     <div className="space-y-6">
       {/* 반 전체 그래프 */}
       <div>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div>
             <h3 className="font-bold text-base text-gray-800">카테고리별 전체 현황</h3>
             <p className="text-xs text-gray-400 mt-0.5">
               전체 {classTotal.totalTagged}건 · {patterns.length}명 데이터
             </p>
           </div>
-          <button onClick={() => exportErrorPatternsCsv(patterns, classId)}
-            className="text-xs font-bold text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition-colors">
-            📊 익명 CSV 내보내기
-          </button>
+          <div className="flex items-center gap-2">
+            {hasParticipants && (
+              <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                <input type="checkbox" checked={participantsOnly}
+                  onChange={e => setParticipantsOnly(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-purple-600 cursor-pointer" />
+                연구 참여자만 ({participantUids.size}명)
+              </label>
+            )}
+            <button onClick={handleExport}
+              className="text-xs font-bold text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition-colors">
+              📊 익명 CSV 내보내기
+            </button>
+          </div>
         </div>
 
         <div className="space-y-2">
