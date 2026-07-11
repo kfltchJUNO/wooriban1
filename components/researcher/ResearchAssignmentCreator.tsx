@@ -32,14 +32,17 @@ export default function ResearchAssignmentCreator({ onCreated }: Props) {
 
     setLoading(true)
     try {
-      await createResearchAssignment({
+      const payload: Parameters<typeof createResearchAssignment>[0] = {
         title: title.trim(), prompt: prompt.trim(), argumentLabels: labels,
         minChars, maxChars, allowPaste,
-        postSurveyUrl: postSurveyUrl.trim() || undefined,
         interactionMode,
         delayHours: interactionMode === 'delayed' ? delayHours : 0,
         isActive: true, createdBy: appUser.uid,
-      })
+      }
+      // postSurveyUrl은 값이 있을 때만 필드 자체를 포함 (undefined는 Firestore가 거부함)
+      if (postSurveyUrl.trim()) payload.postSurveyUrl = postSurveyUrl.trim()
+
+      await createResearchAssignment(payload)
       showToast('연구 과제가 생성됐어요!')
       setTitle(''); setPrompt('')
       onCreated()
