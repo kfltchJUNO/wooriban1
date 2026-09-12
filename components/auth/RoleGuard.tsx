@@ -10,17 +10,20 @@ interface RoleGuardProps {
 }
 
 export default function RoleGuard({ allowedRoles, children }: RoleGuardProps) {
-  const { appUser, loading } = useAuth()
+  const { appUser, firebaseUser, loading } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
     if (loading) return
-    if (!appUser) { router.replace('/login'); return }
+    // 로그인 안 되어 있으면 로그인 페이지로
+    if (!firebaseUser) { router.replace('/login'); return }
+    // firebaseUser는 있는데 appUser 프로필 로딩 중이면 대기
+    if (!appUser) return
     if (appUser.status === 'pending') { router.replace('/pending'); return }
     if (!allowedRoles.includes(appUser.role)) {
       router.replace(`/${appUser.role}`)
     }
-  }, [appUser, loading, allowedRoles, router])
+  }, [appUser, firebaseUser, loading, allowedRoles, router])
 
   if (loading || !appUser) {
     return (

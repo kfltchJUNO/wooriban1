@@ -15,11 +15,13 @@ export default function LoginForm() {
   const router = useRouter()
 
   const handleEmail = async () => {
-    if (!id || !pw) { setErr('아이디와 비밀번호를 입력해주세요.'); return }
+    const cleanId = id.trim().toLowerCase()
+    const cleanPw = pw
+    if (!cleanId || !cleanPw) { setErr('아이디와 비밀번호를 입력해주세요.'); return }
     setLoading(true); setErr('')
     try {
-      const email = id.includes('@') ? id : `${id}@wooriban.app`
-      const cred  = await signInWithEmailAndPassword(auth, email, pw)
+      const email = cleanId.includes('@') ? cleanId : `${cleanId}@wooriban.app`
+      const cred  = await signInWithEmailAndPassword(auth, email, cleanPw)
       await redirect(cred.user.uid)
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code ?? ''
@@ -53,7 +55,10 @@ export default function LoginForm() {
 
   const redirect = async (uid: string) => {
     const snap = await getDoc(doc(db, 'users', uid))
-    if (!snap.exists()) { router.push('/register'); return }
+    if (!snap.exists()) {
+      setErr('계정 프로필 정보를 찾을 수 없어요. 관리자에게 문의해주세요.')
+      return
+    }
     const user = snap.data() as AppUser
     if (user.status === 'pending') { router.push('/pending'); return }
     router.push(`/${user.role}`)

@@ -45,7 +45,7 @@ export default function TeacherCodeManager() {
   const [nsName, setNsName] = useState('')
   const [nsCode, setNsCode] = useState('')
   // 새 학기 폼
-  const [nsemYear,   setNsemYear]   = useState('26')
+  const [nsemYear,   setNsemYear]   = useState('')
   const [nsemSeason, setNsemSeason] = useState('SU')
   // 새 반 폼
   const [nclLevel, setNclLevel] = useState(30)
@@ -122,8 +122,9 @@ export default function TeacherCodeManager() {
   // ── 새 학기 추가 ─────────────────────────────────────────────
   const handleAddSemester = async () => {
     if (!currentSchool) { showToast('학교를 먼저 선택해주세요.'); return }
-    if (!/^\d{2}$/.test(nsemYear)) { showToast('연도는 숫자 2자리여야 해요. (예: 26)'); return }
-    const semId = `${nsemYear}-${SEASON_MAP[nsemSeason]}`
+    if (!nsemYear.trim()) { showToast('연도를 입력해주세요. (예: 26)'); return }
+    if (!/^\d{2}$/.test(nsemYear.trim())) { showToast('연도는 숫자 2자리여야 해요. (예: 26)'); return }
+    const semId = `${nsemYear.trim()}-${SEASON_MAP[nsemSeason]}`
     if (semesterList.includes(semId)) { showToast('이미 존재하는 학기예요.'); return }
 
     setBusy(true)
@@ -293,7 +294,7 @@ export default function TeacherCodeManager() {
           <div className="bg-white rounded-xl p-3 flex flex-wrap items-end gap-2 border border-indigo-100">
             <div className="w-24">
               <label className="text-[11px] font-bold text-gray-400 block mb-1">연도 (2자리)</label>
-              <input value={nsemYear} onChange={e => setNsemYear(e.target.value.replace(/\D/g, '').slice(0, 2))} placeholder="26" className={inputCls} />
+              <input value={nsemYear} onChange={e => setNsemYear(e.target.value.replace(/\D/g, '').slice(0, 2))} placeholder="예: 26" className={inputCls} />
             </div>
             <div className="w-28">
               <label className="text-[11px] font-bold text-gray-400 block mb-1">학기</label>

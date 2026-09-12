@@ -15,6 +15,8 @@ export const SEASON_MAP: Record<string, string> = {
   SU: 'summer',
   FA: 'fall',
   WI: 'winter',
+  S1: 'sem1',
+  S2: 'sem2',
 }
 
 export const SEASON_LABEL: Record<string, string> = {
@@ -22,6 +24,8 @@ export const SEASON_LABEL: Record<string, string> = {
   SU: '여름',
   FA: '가을',
   WI: '겨울',
+  S1: '1학기',
+  S2: '2학기',
 }
 
 // spring → SP 역변환

@@ -23,6 +23,8 @@ const SEASON_LABEL: Record<string, string> = {
   summer: '여름학기',
   fall:   '가을학기',
   winter: '겨울학기',
+  sem1:   '1학기',
+  sem2:   '2학기',
 }
 
 const LEVEL_LABEL: Record<string, string> = {

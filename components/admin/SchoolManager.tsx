@@ -14,6 +14,8 @@ const SEASONS = [
   { value: 'summer', label: '여름' },
   { value: 'fall',   label: '가을' },
   { value: 'winter', label: '겨울' },
+  { value: 'sem1',   label: '1학기' },
+  { value: 'sem2',   label: '2학기' },
 ]
 
 const CLASS_TYPES = [
@@ -78,23 +80,48 @@ export default function SchoolManager() {
 
   // ── 학기 추가 ─────────────────────────────────────────────────
   const handleAddSemester = async (schoolId: string) => {
-    const form = semesterForms[schoolId] ?? { year: '26', season: 'summer' }
-    const semId = buildSemesterId(form.year, form.season)
-    await addSemester(schoolId, semId)
-    showToast(`${formatSemesterId(semId)} 학기가 추가됐어요!`)
-    await load()
+    const form = semesterForms[schoolId]
+    const year = form?.year?.trim()
+    if (!year) {
+      showToast('연도를 입력해주세요. (예: 26)')
+      return
+    }
+    if (!/^\d{2}$/.test(year)) {
+      showToast('연도는 숫자 2자리여야 해요. (예: 26)')
+      return
+    }
+    const season = form?.season || 'spring'
+    const semId = buildSemesterId(year, season)
+
+    try {
+      await addSemester(schoolId, semId)
+      showToast(`${formatSemesterId(semId)}가 추가됐어요!`)
+      setSemesterForms(p => ({ ...p, [schoolId]: { year: '', season: 'spring' } }))
+      await load()
+    } catch (e: unknown) {
+      console.error('[Add Semester Error]', e)
+      const msg = e instanceof Error ? e.message : '학기 추가 중 오류가 발생했어요.'
+      showToast(`학기 추가 실패: ${msg}`)
+    }
   }
 
   // ── 반 추가 ───────────────────────────────────────────────────
   const handleAddClass = async (schoolId: string, semesterId: string) => {
     const key     = `${schoolId}-${semesterId}`
-    const form    = classForms[key] ?? { type: '', num: '1' }
-    const classId = form.type
-      ? `${form.type}-${form.num}`
-      : `class-${form.num}`
-    await addClass(schoolId, semesterId, classId)
-    showToast(`${formatClassId(classId)} 반이 추가됐어요!`)
-    await load()
+    const form    = classForms[key]
+    const type    = form?.type ?? ''
+    const num     = form?.num?.trim() || '1'
+    const classId = type ? `${type}-${num}` : `class-${num}`
+
+    try {
+      await addClass(schoolId, semesterId, classId)
+      showToast(`${formatClassId(classId)} 반이 추가됐어요!`)
+      await load()
+    } catch (e: unknown) {
+      console.error('[Add Class Error]', e)
+      const msg = e instanceof Error ? e.message : '반 추가 중 오류가 발생했어요.'
+      showToast(`반 추가 실패: ${msg}`)
+    }
   }
 
   if (loading) return <div className="text-center text-gray-400 py-10 animate-pulse">불러오는 중...</div>
@@ -180,19 +207,31 @@ export default function SchoolManager() {
             {/* 학기 추가 폼 */}
             <div className="flex gap-2 items-end">
               <div>
-                <label className="text-xs font-semibold text-gray-400 block mb-1">연도</label>
+                <label className="text-xs font-semibold text-gray-400 block mb-1">연도 (2자리)</label>
                 <input
-                  value={semesterForms[school.id]?.year ?? '26'}
-                  onChange={e => setSemesterForms(p => ({ ...p, [school.id]: { ...p[school.id], year: e.target.value } }))}
-                  placeholder="26"
+                  value={semesterForms[school.id]?.year ?? ''}
+                  onChange={e => setSemesterForms(p => ({
+                    ...p,
+                    [school.id]: {
+                      year: e.target.value.replace(/\D/g, '').slice(0, 2),
+                      season: p[school.id]?.season ?? 'spring',
+                    }
+                  }))}
+                  placeholder="예: 26"
                   maxLength={2}
-                  className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:border-indigo-400" />
+                  className="w-20 border border-gray-200 rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:border-indigo-400 font-mono" />
               </div>
               <div>
                 <label className="text-xs font-semibold text-gray-400 block mb-1">학기</label>
                 <select
-                  value={semesterForms[school.id]?.season ?? 'summer'}
-                  onChange={e => setSemesterForms(p => ({ ...p, [school.id]: { ...p[school.id], season: e.target.value } }))}
+                  value={semesterForms[school.id]?.season ?? 'spring'}
+                  onChange={e => setSemesterForms(p => ({
+                    ...p,
+                    [school.id]: {
+                      year: p[school.id]?.year ?? '',
+                      season: e.target.value,
+                    }
+                  }))}
                   className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-400">
                   {SEASONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                 </select>
@@ -261,7 +300,13 @@ export default function SchoolManager() {
                             <label className="text-xs font-semibold text-gray-400 block mb-1">구분 (선택)</label>
                             <select
                               value={classForms[formKey]?.type ?? ''}
-                              onChange={e => setClassForms(p => ({ ...p, [formKey]: { ...p[formKey], type: e.target.value } }))}
+                              onChange={e => setClassForms(p => ({
+                                ...p,
+                                [formKey]: {
+                                  type: e.target.value,
+                                  num: p[formKey]?.num ?? '1',
+                                }
+                              }))}
                               className="border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-400">
                               {CLASS_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                             </select>
@@ -271,7 +316,13 @@ export default function SchoolManager() {
                             <input
                               type="number" min="1" max="99"
                               value={classForms[formKey]?.num ?? '1'}
-                              onChange={e => setClassForms(p => ({ ...p, [formKey]: { ...p[formKey], num: e.target.value } }))}
+                              onChange={e => setClassForms(p => ({
+                                ...p,
+                                [formKey]: {
+                                  type: p[formKey]?.type ?? '',
+                                  num: e.target.value,
+                                }
+                              }))}
                               className="w-16 border border-gray-200 rounded-xl px-3 py-2 text-xs text-center focus:outline-none focus:border-indigo-400" />
                           </div>
                           <button onClick={() => handleAddClass(school.id, semId)}

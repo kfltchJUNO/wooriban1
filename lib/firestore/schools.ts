@@ -91,9 +91,10 @@ export async function deleteSchool(schoolId: string) {
 
 // ── 학기/반 레이블 헬퍼 ──────────────────────────────────────────
 export function formatSemesterId(id: string): string {
-  // "26-summer" → "2026년 여름"
+  // "26-summer" → "2026년 여름학기", "26-sem1" → "2026년 1학기"
   const SEASON: Record<string, string> = {
-    spring: '봄', summer: '여름', fall: '가을', winter: '겨울'
+    spring: '봄학기', summer: '여름학기', fall: '가을학기', winter: '겨울학기',
+    sem1: '1학기', sem2: '2학기',
   }
   const [year, season] = id.split('-')
   return `20${year}년 ${SEASON[season] ?? season}`
@@ -126,6 +127,8 @@ export function buildClassId(level: string, num: number): string {
 
 // ── semesterId 자동 생성 ──────────────────────────────────────────
 // year: "26", season: "summer" → "26-summer"
-export function buildSemesterId(year: string, season: string): string {
-  return `${year.slice(-2)}-${season}`
+export function buildSemesterId(year?: string, season?: string): string {
+  const y = (year?.trim() || '26').slice(-2)
+  const s = season || 'summer'
+  return `${y}-${s}`
 }
