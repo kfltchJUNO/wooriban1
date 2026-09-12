@@ -22,11 +22,15 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit, existi
   // 자유글 모드
   const [content,    setContent]      = useState('')
   // 문장/대화문 모드 — 항목별 입력
-  const itemCount = assignment.itemCount ?? 5
   const speakers  = assignment.speakers && assignment.speakers.length >= 2
     ? assignment.speakers
     : ['가', '나']
-  const [items, setItems] = useState<string[]>(() => Array(itemCount).fill(''))
+  const rawItemCount = assignment.itemCount ?? (contentType === 'dialogue' ? 2 : 5)
+  // 대화문일 경우, 최소한 화자 수(기본 2명) 이상의 칸이 보장되어야 대화가 성립됨
+  const totalItemCount = contentType === 'dialogue'
+    ? Math.max(speakers.length, rawItemCount)
+    : Math.max(1, rawItemCount)
+  const [items, setItems] = useState<string[]>(() => Array(totalItemCount).fill(''))
 
   const [loading,    setLoading]      = useState(false)
   const [pasteCount, setPasteCount]   = useState(0)

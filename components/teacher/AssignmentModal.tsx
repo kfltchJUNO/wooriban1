@@ -39,9 +39,13 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
     if (type === 'freeWriting') {
       // 자유글은 글자 수 기준이 자연스러움
       setMin(150); setMax(2000)
-    } else {
-      // 문장/대화문은 항목 단위라 글자 수 제한은 넉넉하게 (항목당이 아니라 전체 합산 기준)
+    } else if (type === 'sentence') {
       setMin(0); setMax(3000)
+      if (itemCount < 1) setItemCount(5)
+    } else if (type === 'dialogue') {
+      setMin(0); setMax(3000)
+      // 대화문은 기본 4칸 (가 ➔ 나 ➔ 가 ➔ 나)
+      if (itemCount < 2) setItemCount(4)
     }
   }
 
@@ -56,9 +60,15 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
       setErr('문항 개수를 1개 이상 입력해주세요')
       return
     }
-    if (contentType === 'dialogue' && speakers.length < 2) {
-      setErr('대화문은 화자가 2명 이상 필요해요 (예: 가, 나)')
-      return
+    if (contentType === 'dialogue') {
+      if (speakers.length < 2) {
+        setErr('대화문은 화자가 2명 이상 필요해요 (예: 가, 나)')
+        return
+      }
+      if (itemCount < speakers.length) {
+        setErr(`대화문은 최소 ${speakers.length}개 이상의 발화 칸이 필요해요 (화자당 최소 1회)`)
+        return
+      }
     }
     setLoading(true)
     try {
@@ -122,11 +132,16 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
             <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3.5 space-y-3">
               <div>
                 <label className="text-xs font-bold text-gray-500 block mb-1">
-                  {contentType === 'sentence' ? '문장 개수' : '대화 턴(주고받는 횟수)'}
+                  {contentType === 'sentence' ? '문장 개수' : '대화 발화(칸) 개수'}
                 </label>
-                <input type="number" min={1} max={30}
+                <input type="number" min={contentType === 'dialogue' ? Math.max(2, speakers.length) : 1} max={30}
                   className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
                   value={itemCount} onChange={e => setItemCount(Math.max(1, +e.target.value))} />
+                {contentType === 'dialogue' && (
+                  <p className="text-[11px] text-indigo-600 font-medium mt-1">
+                    💡 학생 화면에 총 {Math.max(speakers.length, itemCount)}개의 대화 칸이 생성돼요 ({speakers.join(' ➔ ')} 순서로 번갈아 발화)
+                  </p>
+                )}
               </div>
 
               {contentType === 'dialogue' && (
@@ -139,7 +154,7 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
                     value={speakerText} onChange={e => setSpeakerText(e.target.value)}
                     placeholder="가, 나  또는  민정, 민용" />
                   <p className="text-[11px] text-gray-400 mt-1">
-                    턴마다 화자가 번갈아 등장해요 (예: {speakers[0] || '가'} → {speakers[1] || '나'} → {speakers[0] || '가'} ...)
+                    화자가 순서대로 번갈아 등장해요 (예: {speakers[0] || '가'} → {speakers[1] || '나'} → {speakers[0] || '가'} ...)
                   </p>
                 </div>
               )}
