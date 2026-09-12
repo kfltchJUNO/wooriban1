@@ -12,6 +12,7 @@ import QuizGenerator from '@/components/teacher/QuizGenerator'
 import QuizList from '@/components/teacher/QuizList'
 import ErrorPatternViewer from '@/components/teacher/ErrorPatternViewer'
 import RosterManager from '@/components/teacher/RosterManager'
+import StudentInviteModal from '@/components/teacher/StudentInviteModal'
 import { useAuth } from '@/lib/auth/authContext'
 import { getUsersByClass } from '@/lib/firestore/users'
 import { getSubmissionsByClass, getFreeWritingsByClass } from '@/lib/firestore/submissions'
@@ -54,6 +55,7 @@ export default function TeacherPage() {
   const [showAssign,   setShowAssign] = useState(false)
   const [showQuizGen,  setShowQuizGen]= useState(false)
   const [showErrorPattern, setShowErrorPattern] = useState(false)
+  const [showInviteModal, setShowInviteModal] = useState(false)
   const [panel,        setPanel]      = useState<Panel>('main')
   const [quizRefresh,  setQuizRefresh]= useState(0)
   const [toast,        setToast]      = useState('')
@@ -140,6 +142,10 @@ export default function TeacherPage() {
               </div>
 
               <div className="flex gap-2 flex-wrap">
+                <button onClick={() => setShowInviteModal(true)}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold px-4 py-2.5 rounded-xl shadow-sm transition-colors flex items-center gap-1.5">
+                  📱 학생 초대 QR
+                </button>
                 <button onClick={() => setShowAssign(true)}
                   className="bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition-colors">
                   📝 숙제 출제
@@ -237,6 +243,15 @@ export default function TeacherPage() {
         )}
         {showErrorPattern && (
           <ErrorPatternViewer onClose={() => setShowErrorPattern(false)} students={students} />
+        )}
+        {showInviteModal && appUser && (
+          <StudentInviteModal
+            schoolId={appUser.schoolId}
+            semester={appUser.semester}
+            classId={appUser.classId}
+            teacherUid={appUser.uid}
+            onClose={() => setShowInviteModal(false)}
+          />
         )}
 
         {toast && (

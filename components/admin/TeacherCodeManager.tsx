@@ -53,6 +53,12 @@ export default function TeacherCodeManager() {
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500) }
 
+  const handleCopyLink = (code: string) => {
+    const url = `${window.location.origin}/join/teacher?code=${code}`
+    navigator.clipboard.writeText(url)
+    showToast(`초대 링크가 복사되었어요! (${code})`)
+  }
+
   const load = async () => {
     setLoading(true)
     try {
@@ -382,7 +388,13 @@ export default function TeacherCodeManager() {
               }`}>
                 {c.used ? '사용됨' : '미사용'}
               </span>
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {!c.used && (
+                  <button onClick={() => handleCopyLink(c.code)} title="선생님 초대 링크 복사"
+                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors">
+                    🔗 링크 복사
+                  </button>
+                )}
                 {c.used && (
                   <button onClick={() => handleReset(c)} title="미사용으로 초기화"
                     className="px-2 py-1 text-[11px] font-bold text-amber-600 hover:bg-amber-50 rounded-lg transition-colors">
