@@ -47,12 +47,13 @@ export default function StudentJoinForm() {
     setValidating(true)
     setCodeError('')
     try {
-      const res = await validateClassInvitation(targetCode)
-      if (!res.valid || !res.invitation) {
-        setCodeError(res.error || '유효하지 않거나 만료된 초대 코드예요. (Invalid or expired code)')
+      const res = await fetch(`/api/join/validate?code=${encodeURIComponent(targetCode)}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.invitation) {
+        setCodeError(data.error || '유효하지 않거나 만료된 초대 코드예요. (Invalid or expired code)')
         setInvitation(null)
       } else {
-        setInvitation(res.invitation)
+        setInvitation(data.invitation)
         setCodeError('')
       }
     } catch {

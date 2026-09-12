@@ -44,12 +44,13 @@ export default function TeacherJoinForm() {
     setValidating(true)
     setCodeError('')
     try {
-      const res = await validateTeacherCode(targetCode)
-      if (!res.valid || !res.info) {
-        setCodeError(res.error || '유효하지 않거나 이미 사용된 초대 코드예요.')
+      const res = await fetch(`/api/join/teacher/validate?code=${encodeURIComponent(targetCode)}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.info) {
+        setCodeError(data.error || '유효하지 않거나 이미 사용된 초대 코드예요.')
         setCodeInfo(null)
       } else {
-        setCodeInfo(res.info)
+        setCodeInfo(data.info)
         setCodeError('')
       }
     } catch {

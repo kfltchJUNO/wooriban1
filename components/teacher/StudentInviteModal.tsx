@@ -2,7 +2,8 @@
 // components/teacher/StudentInviteModal.tsx
 import { useState, useEffect } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
-import { getOrCreateClassInvitation, type ClassInvitation } from '@/lib/firestore/classInvitations'
+import { auth } from '@/firebase/firebaseConfig'
+import type { ClassInvitation } from '@/lib/firestore/classInvitations'
 
 interface Props {
   schoolId:    string
@@ -32,12 +33,40 @@ export default function StudentInviteModal({
   const loadInvitation = async () => {
     setLoading(true)
     setErr('')
+
+    if (!schoolId || !semester || !classId) {
+      setErr('선생님 계정에 학교, 학기, 반 정보가 등록되어 있지 않아요. 관리자에게 문의해주세요.')
+      setLoading(false)
+      return
+    }
+
     try {
-      const inv = await getOrCreateClassInvitation(schoolId, semester, classId, teacherUid)
-      setInvitation(inv)
-    } catch (e) {
+      const token = await auth.currentUser?.getIdToken()
+      if (!token) {
+        setErr('로그인 세션이 만료되었어요. 다시 로그인해주세요.')
+        setLoading(false)
+        return
+      }
+
+      const res = await fetch('/api/class/invite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ schoolId, semester, classId }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.invitation) {
+        throw new Error(data.error || '초대 코드를 생성하지 못했어요.')
+      }
+
+      setInvitation(data.invitation)
+    } catch (e: unknown) {
       console.error('[StudentInviteModal] Error:', e)
-      setErr('초대 코드를 생성하지 못했어요. 다시 시도해주세요.')
+      const msg = e instanceof Error ? e.message : String(e)
+      setErr(msg)
     } finally {
       setLoading(false)
     }
