@@ -333,6 +333,26 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
               )}
             </div>
 
+            {/* TOPIK 예상 점수 및 모범 답안 검토 */}
+            {feedback.aiFeedback.topikScore && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-amber-800">🏆 TOPIK 예상 점수 및 총평</span>
+                  <span className="text-xs font-black text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full">
+                    {feedback.aiFeedback.topikScore}
+                  </span>
+                </div>
+                {feedback.aiFeedback.topikModelEssay && (
+                  <div className="mt-2 pt-2 border-t border-amber-200">
+                    <span className="text-xs font-bold text-amber-700 block mb-1">📖 AI 추천 모범 답안</span>
+                    <div className="bg-white rounded-xl p-3 text-xs leading-relaxed text-gray-700 max-h-[140px] overflow-y-auto whitespace-pre-wrap font-['Noto_Sans_KR']">
+                      {feedback.aiFeedback.topikModelEssay}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* 구조화된 오류 태그 목록 */}
             {errorTags.length > 0 && (
               <div className={`rounded-2xl p-5 mb-4 border ${needsAudit ? 'border-purple-200 bg-purple-50' : 'border-gray-100 bg-gray-50'}`}>

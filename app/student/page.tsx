@@ -410,15 +410,17 @@ export default function StudentPage() {
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-xs font-bold text-gray-400">내용</label>
-                    <HandwritingOcrButton
-                      onTextExtracted={text => {
-                        setFreeContent(prev => {
-                          if (!prev.trim()) return text
-                          return prev + '\n' + text
-                        })
-                        showToast('📷 손글씨를 텍스트로 입력했어요!')
-                      }}
-                    />
+                    {appUser?.ocrEnabled !== false && (
+                      <HandwritingOcrButton
+                        onTextExtracted={text => {
+                          setFreeContent(prev => {
+                            if (!prev.trim()) return text
+                            return prev + '\n' + text
+                          })
+                          showToast('📷 손글씨를 텍스트로 입력했어요!')
+                        }}
+                      />
+                    )}
                   </div>
                   <textarea
                     className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm min-h-[160px] resize-none outline-none focus:border-indigo-500 font-['Noto_Sans_KR'] leading-relaxed"

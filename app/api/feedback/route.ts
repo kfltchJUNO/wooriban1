@@ -110,10 +110,22 @@ function buildPrompt(
 ⚠️ 이 글은 여러 개의 독립된 문장을 모은 것이야 (번호로 구분돼 있음).
 문장들이 서로 이어지는 글이 아니니 'structure' 항목은 "전체 흐름"이 아니라
 "각 문장이 독립적으로 자연스러운지"를 평가해줘.
+` : (contentType === 'topik53' || contentType === 'topik54') ? `
+
+🏆 [TOPIK II 쓰기 전문 평가 모드: ${contentType === 'topik53' ? '53번 (30점 만점)' : '54번 (50점 만점)'}]
+TOPIK 공식 채점 기준 4요소를 엄격히 적용하여 평가해줘:
+1) 내용 및 과제 수행: 제시된 조건/도표 내용 반영 여부(53번) / 논제 3가지 완결성(54번)
+2) 글의 전개 및 조직: 서론-본론-결론 구성 및 담화표제어/접속부사 활용도
+3) 언어 사용(어휘/문법): 중·고급 어휘/문법 구사도, 불필요한 어휘 중복 회피
+4) 언어 사용(문체/맞춤법): 격식체(~다/는다) 통일성, 구어체/하십시오체/해요체 배제, 원고지 띄어쓰기 및 맞춤법
+
+반드시 다음 2가지를 추가로 응답에 포함해야 해:
+- "topikScore": 예상 점수 (예: 53번이면 "24/30점", 54번이면 "41/50점")와 핵심 채점 요약 (50자 이내)
+- "topikModelEssay": 학생의 글과 주제를 바탕으로 TOPIK 고득점을 받을 수 있는 완벽한 모범 답안 전문 (53번은 200~300자 내외, 54번은 600~700자 내외의 격식체 줄글)
 ` : ''
 
   return `
-너는 한국어 작문 전문 교사야.
+너는 한국어 작문 전문 교사이자 TOPIK II 공식 채점 위원이야.
 학습자 수준: ${level}
 과제 내용: ${assignment}
 ${grammar ? `타깃 문법: ${grammar}` : ''}
@@ -140,6 +152,8 @@ ${content}
   "vocabulary": "더 자연스러운 어휘 제안 (80자 이내)",
   "structure": "단락 구성과 흐름 평가 (80자 이내)",
   "positive": "잘한 점 - 반드시 구체적으로 1개 이상 (80자 이내)",
+  "topikScore": "${contentType === 'topik53' ? '25/30점 (도표 내용 반영 우수)' : contentType === 'topik54' ? '42/50점 (논리적 전개 양호)' : ''}",
+  "topikModelEssay": "${contentType === 'topik53' || contentType === 'topik54' ? 'TOPIK 고득점 모범 답안 전문' : ''}",
   "errorTags": [
     {
       "category": "조사 오류",
@@ -253,6 +267,8 @@ export async function POST(req: NextRequest) {
     const parsed = JSON.parse(raw) as {
       grammar: string; vocabulary: string; structure: string; positive: string
       errorTags?: ErrorTag[]
+      topikScore?: string
+      topikModelEssay?: string
     }
     const errorTags = Array.isArray(parsed.errorTags) ? parsed.errorTags.slice(0, 5) : []
 
@@ -267,18 +283,22 @@ export async function POST(req: NextRequest) {
     // 보장 못 한다"며 쿼리 자체를 차단함(Missing or insufficient permissions).
     // ID를 submissionId로 고정하면 getDoc()으로 바로 읽어서 이 문제가 사라짐.
     // 재시도(retry) 시에도 같은 ID라 자연스럽게 덮어써짐.
+    const aiFeedbackData: Record<string, unknown> = {
+      grammar:     parsed.grammar,
+      vocabulary:  parsed.vocabulary,
+      structure:   parsed.structure,
+      positive:    parsed.positive,
+      errorTags,
+      generatedAt: new Date(),
+    }
+    if (parsed.topikScore) aiFeedbackData.topikScore = parsed.topikScore
+    if (parsed.topikModelEssay) aiFeedbackData.topikModelEssay = parsed.topikModelEssay
+
     await adminDb.collection('feedback').doc(submissionId).set({
       submissionId,
       studentUid: studentUid ?? null,
       classId: classId ?? null,   // ← 단원별 분석(analysis/errors)이 정확히 범위를 좁힐 수 있도록 추가
-      aiFeedback: {
-        grammar:     parsed.grammar,
-        vocabulary:  parsed.vocabulary,
-        structure:   parsed.structure,
-        positive:    parsed.positive,
-        errorTags,
-        generatedAt: new Date(),
-      },
+      aiFeedback: aiFeedbackData,
       teacherComment:   '',
       teacherApproved:  false,
       needsAudit,               // true면 선생님 화면에 "AI 태깅 검수 요청" 표시

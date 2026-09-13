@@ -11,7 +11,11 @@ import SchoolManager from '@/components/admin/SchoolManager'
 import ResearchFormSettingsPanel from '@/components/admin/ResearchFormSettings'
 import ResearchAccountManager from '@/components/admin/ResearchAccountManager'
 import ResearchApplicantsPanel from '@/components/admin/ResearchApplicantsPanel'
-import { getAllUsers, getPendingUsers, approveUser, rejectUser, deleteUser, updateFreeWritingEnabled, updateResearchParticipant } from '@/lib/firestore/users'
+import {
+  getAllUsers, getPendingUsers, approveUser, rejectUser, deleteUser,
+  updateFreeWritingEnabled, updateResearchParticipant,
+  updateTopikEnabled, updateOcrEnabled, updateClassPermissions
+} from '@/lib/firestore/users'
 import { deleteTextbook } from '@/lib/firestore/textbooks'
 import { getAllTeacherCodes } from '@/lib/firestore/teacherCodes'
 import { updateDoc, doc, collection, query, where, getDocs } from 'firebase/firestore'
@@ -32,6 +36,9 @@ export default function AdminPage() {
   // 파일 교체: 기존 교재를 삭제하고 새로 업로드
   const [reUploadTarget, setReUploadTarget] = useState<Textbook | null>(null)
 
+  // 반 필터 상태
+  const [selectedClassFilter, setSelectedClassFilter] = useState<string>('')
+
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500) }
 
   const loadAll = async () => {
@@ -40,6 +47,14 @@ export default function AdminPage() {
     setPending(pend)
   }
   useEffect(() => { loadAll() }, [])
+
+  const filteredUsers = users
+    .filter(u => u.status === 'active')
+    .filter(u => {
+      if (!selectedClassFilter) return true
+      const [sch, sem, cls] = selectedClassFilter.split('__')
+      return u.schoolId === sch && u.semester === sem && u.classId === cls
+    })
 
   const handleApprove = async (user: AppUser) => {
     await approveUser(user.uid, user.classId, users.filter(u => u.classId === user.classId).length + 1)
@@ -192,7 +207,85 @@ export default function AdminPage() {
 
           {/* 전체 사용자 목록 */}
           {tab === 'users' && (
-            <div className="bg-white rounded-2xl p-6 shadow-md overflow-x-auto">
+            <div className="bg-white rounded-2xl p-6 shadow-md overflow-x-auto space-y-4">
+              {/* 상단 반 필터 및 일괄 권한 제어 바 */}
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-gray-50 rounded-xl border border-gray-100">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-gray-500">반 필터:</span>
+                  <select
+                    value={selectedClassFilter}
+                    onChange={e => setSelectedClassFilter(e.target.value)}
+                    className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white font-medium outline-none focus:border-indigo-500"
+                  >
+                    <option value="">전체 사용자 ({users.filter(u => u.status === 'active').length}명)</option>
+                    {Array.from(new Set(users.filter(u => u.status === 'active' && u.classId).map(u => `${u.schoolId}__${u.semester}__${u.classId}`))).map(groupKey => {
+                      const [sch, sem, cls] = groupKey.split('__')
+                      const count = users.filter(u => u.status === 'active' && u.schoolId === sch && u.semester === sem && u.classId === cls).length
+                      return (
+                        <option key={groupKey} value={groupKey}>
+                          {formatSchool(sch)} · {formatSemester(sem)} · {formatClass(cls)} ({count}명)
+                        </option>
+                      )
+                    })}
+                  </select>
+                </div>
+
+                {selectedClassFilter && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-gray-400 font-semibold">반 전체 일괄 설정:</span>
+                    <button
+                      onClick={async () => {
+                        const [, , cls] = selectedClassFilter.split('__')
+                        if (!confirm(`이 반 학생 전체의 [토픽 쓰기]를 켜시겠습니까?`)) return
+                        await updateClassPermissions(cls, 'topikEnabled', true)
+                        showToast('반 전체 학생의 토픽 쓰기 권한이 켜졌어요!')
+                        loadAll()
+                      }}
+                      className="text-xs px-2.5 py-1 bg-amber-50 text-amber-700 font-bold border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                    >
+                      🏆 토픽쓰기 전체 ON
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const [, , cls] = selectedClassFilter.split('__')
+                        if (!confirm(`이 반 학생 전체의 [토픽 쓰기]를 끄시겠습니까?`)) return
+                        await updateClassPermissions(cls, 'topikEnabled', false)
+                        showToast('반 전체 학생의 토픽 쓰기 권한이 꺼졌어요.')
+                        loadAll()
+                      }}
+                      className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 font-semibold border border-gray-200 rounded-lg hover:bg-gray-200 transition-colors"
+                    >
+                      토픽쓰기 OFF
+                    </button>
+
+                    <button
+                      onClick={async () => {
+                        const [, , cls] = selectedClassFilter.split('__')
+                        if (!confirm(`이 반 학생 전체의 [사진인식]을 켜시겠습니까?`)) return
+                        await updateClassPermissions(cls, 'ocrEnabled', true)
+                        showToast('반 전체 학생의 사진인식 권한이 켜졌어요!')
+                        loadAll()
+                      }}
+                      className="text-xs px-2.5 py-1 bg-blue-50 text-blue-700 font-bold border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      📷 사진인식 전체 ON
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const [, , cls] = selectedClassFilter.split('__')
+                        if (!confirm(`이 반 학생 전체의 [사진인식]을 끄시겠습니까?`)) return
+                        await updateClassPermissions(cls, 'ocrEnabled', false)
+                        showToast('반 전체 학생의 사진인식 권한이 꺼졌어요.')
+                        loadAll()
+                      }}
+                      className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 font-semibold border border-gray-200 rounded-lg hover:bg-gray-200 transition-colors"
+                    >
+                      사진인식 OFF
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-gray-400 font-bold border-b-2 border-gray-100">
@@ -201,12 +294,14 @@ export default function AdminPage() {
                     <th className="text-left pb-3 px-3">역할</th>
                     <th className="text-left pb-3 px-3">소속</th>
                     <th className="text-left pb-3 px-3">자유작문</th>
+                    <th className="text-left pb-3 px-3">🏆 토픽</th>
+                    <th className="text-left pb-3 px-3">📷 사진</th>
                     <th className="text-left pb-3 px-3">🔬 연구</th>
                     <th className="text-left pb-3 px-3">관리</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {users.filter(u => u.status === 'active').map(user => (
+                  {filteredUsers.map(user => (
                     <tr key={user.uid} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                       <td className="py-3 px-3 font-bold">{user.nameKr}</td>
                       <td className="py-3 px-3 text-gray-400 text-xs">{user.email.replace('@wooriban.app', '')}</td>
@@ -220,7 +315,7 @@ export default function AdminPage() {
                       </td>
                       <td className="py-3 px-3">
                         {user.role === 'student' && (
-                          <label className="flex items-center gap-2 cursor-pointer">
+                          <label className="flex items-center gap-1.5 cursor-pointer">
                             <input type="checkbox" checked={user.freeWritingEnabled}
                               onChange={async e => { await updateFreeWritingEnabled(user.uid, e.target.checked); loadAll() }}
                               className="w-4 h-4 cursor-pointer accent-indigo-600"/>
@@ -229,7 +324,31 @@ export default function AdminPage() {
                         )}
                       </td>
                       <td className="py-3 px-3">
-                        <label className="flex items-center gap-2 cursor-pointer">
+                        {user.role === 'student' && (
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input type="checkbox" checked={!!user.topikEnabled}
+                              onChange={async e => { await updateTopikEnabled(user.uid, e.target.checked); loadAll() }}
+                              className="w-4 h-4 cursor-pointer accent-amber-600"/>
+                            <span className={`text-xs ${user.topikEnabled ? 'text-amber-600 font-bold' : 'text-gray-400'}`}>
+                              {user.topikEnabled ? '허용' : '제한'}
+                            </span>
+                          </label>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        {user.role === 'student' && (
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input type="checkbox" checked={user.ocrEnabled !== false}
+                              onChange={async e => { await updateOcrEnabled(user.uid, e.target.checked); loadAll() }}
+                              className="w-4 h-4 cursor-pointer accent-blue-600"/>
+                            <span className={`text-xs ${user.ocrEnabled !== false ? 'text-blue-600 font-bold' : 'text-gray-400'}`}>
+                              {user.ocrEnabled !== false ? '허용' : '차단'}
+                            </span>
+                          </label>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
                           <input type="checkbox" checked={!!user.researchParticipant}
                             onChange={async e => { await updateResearchParticipant(user.uid, e.target.checked); loadAll() }}
                             className="w-4 h-4 cursor-pointer accent-purple-600"/>

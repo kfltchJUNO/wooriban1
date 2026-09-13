@@ -21,12 +21,14 @@ export interface ErrorTag {
 }
 
 export interface AIFeedback {
-  grammar:     string
-  vocabulary:  string
-  structure:   string
-  positive:    string
-  errorTags?:  ErrorTag[]
-  generatedAt: Date
+  grammar:          string
+  vocabulary:       string
+  structure:        string
+  positive:         string
+  errorTags?:       ErrorTag[]
+  topikScore?:      string // 예: "24/30점" 또는 "42/50점"
+  topikModelEssay?: string // TOPIK 고득점 모범 답안 리라이팅
+  generatedAt:      Date
 }
 
 // 선생님이 오류 태그별로 남긴 검수 판정 (정오표 대조군 연구용)

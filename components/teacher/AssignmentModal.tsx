@@ -12,9 +12,11 @@ interface Props {
 }
 
 const CONTENT_TYPES: { value: AssignmentContentType; label: string; desc: string }[] = [
-  { value: 'freeWriting', label: '📝 자유글',  desc: '한 편의 글을 자유롭게 작성' },
-  { value: 'sentence',    label: '✏️ 문장',    desc: '지정한 개수만큼 문장을 각각 작성' },
-  { value: 'dialogue',    label: '💬 대화문',  desc: '화자를 나눠 대화를 주고받는 형식' },
+  { value: 'freeWriting', label: '📝 자유글',    desc: '한 편의 글을 자유롭게 작성' },
+  { value: 'sentence',    label: '✏️ 문장',      desc: '지정한 개수만큼 문장을 각각 작성' },
+  { value: 'dialogue',    label: '💬 대화문',    desc: '화자를 나눠 대화를 주고받는 형식' },
+  { value: 'topik53',     label: '📊 TOPIK 53번', desc: '도표/통계 분석 실용문 (200~300자)' },
+  { value: 'topik54',     label: '🏆 TOPIK 54번', desc: '주제 논술형 긴 글 (600~700자)' },
 ]
 
 export default function AssignmentModal({ onClose, onCreated }: Props) {
@@ -37,15 +39,21 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
   const handleContentTypeChange = (type: AssignmentContentType) => {
     setContentType(type)
     if (type === 'freeWriting') {
-      // 자유글은 글자 수 기준이 자연스러움
       setMin(150); setMax(2000)
     } else if (type === 'sentence') {
       setMin(0); setMax(3000)
       if (itemCount < 1) setItemCount(5)
     } else if (type === 'dialogue') {
       setMin(0); setMax(3000)
-      // 대화문은 기본 4칸 (가 ➔ 나 ➔ 가 ➔ 나)
       if (itemCount < 2) setItemCount(4)
+    } else if (type === 'topik53') {
+      setMin(200); setMax(300)
+      if (!title) setTitle('TOPIK II 53번 쓰기 연습')
+      if (!desc) setDesc('다음을 참고하여 200~300자로 글을 쓰십시오. (도표와 통계 자료를 분석하여 원인 및 전망 서술)')
+    } else if (type === 'topik54') {
+      setMin(600); setMax(700)
+      if (!title) setTitle('TOPIK II 54번 논술 쓰기')
+      if (!desc) setDesc('다음을 주제로 하여 자신의 생각을 600~700자로 글을 쓰십시오.\n1. 주제에 대한 현황이나 원인\n2. 장단점 또는 문제점\n3. 바람직한 해결 방안')
     }
   }
 
@@ -56,7 +64,8 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
       setErr('제목, 내용, 마감일을 모두 입력해주세요')
       return
     }
-    if (contentType !== 'freeWriting' && (!itemCount || itemCount < 1)) {
+    const isItemType = contentType === 'sentence' || contentType === 'dialogue'
+    if (isItemType && (!itemCount || itemCount < 1)) {
       setErr('문항 개수를 1개 이상 입력해주세요')
       return
     }
@@ -91,7 +100,7 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
         contentType,
       }
       if (grammar.trim()) assignmentData.grammar = grammar.trim()
-      if (contentType !== 'freeWriting') assignmentData.itemCount = itemCount
+      if (isItemType) assignmentData.itemCount = itemCount
       if (contentType === 'dialogue')    assignmentData.speakers  = speakers
 
       await createAssignment(assignmentData)
@@ -114,21 +123,21 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
           {/* 콘텐츠 유형 선택 */}
           <div>
             <label className="text-xs font-bold text-gray-400 mb-1.5 block">과제 유형</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
               {CONTENT_TYPES.map(t => (
                 <button key={t.value} type="button" onClick={() => handleContentTypeChange(t.value)}
-                  className={`p-2.5 rounded-xl border-2 text-center transition-colors ${
+                  className={`p-2 rounded-xl border-2 text-center transition-colors ${
                     contentType === t.value ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'
                   }`}>
-                  <p className="text-sm font-bold text-gray-800">{t.label}</p>
-                  <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{t.desc}</p>
+                  <p className="text-xs font-bold text-gray-800">{t.label}</p>
+                  <p className="text-[9px] text-gray-400 mt-0.5 leading-tight">{t.desc}</p>
                 </button>
               ))}
             </div>
           </div>
 
           {/* 문장/대화문 세부 설정 */}
-          {contentType !== 'freeWriting' && (
+          {(contentType === 'sentence' || contentType === 'dialogue') && (
             <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3.5 space-y-3">
               <div>
                 <label className="text-xs font-bold text-gray-500 block mb-1">
@@ -184,7 +193,7 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
               placeholder="예: V-느니" />
           </div>
 
-          {contentType === 'freeWriting' && (
+          {contentType !== 'sentence' && contentType !== 'dialogue' && (
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-bold text-gray-400 mb-1.5 block">최소 글자 수</label>

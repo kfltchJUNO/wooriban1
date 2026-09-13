@@ -84,7 +84,9 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit, existi
 
   const now = () => new Date().toLocaleTimeString('ko-KR', { hour12: false })
 
-  // ── 붙여넣기 이벤트 (자유글 모드 전용 — 문장/대화문은 항목이 짧아 로깅 의미가 적음) ──
+  const isLongForm = contentType === 'freeWriting' || contentType === 'topik53' || contentType === 'topik54'
+
+  // ── 붙여넣기 이벤트 (긴 글 모드 전용 — 문장/대화문은 항목이 짧아 로깅 의미가 적음) ──
   const handlePaste = (e: React.ClipboardEvent) => {
     pasteRef.current += 1
     setPasteCount(pasteRef.current)
@@ -116,7 +118,7 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit, existi
 
   const prevContent = useRef(content)
   useEffect(() => {
-    if (contentType !== 'freeWriting' || !assignment.allowPaste) return
+    if (!isLongForm || !assignment.allowPaste) return
     const prev = prevContent.current
     const curr = content
     prevContent.current = curr
@@ -128,7 +130,7 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit, existi
         logsRef.current.push({ time: now(), type: 'delete', deleted, position: start, length: deleted.length })
       }
     }
-  }, [content, contentType, assignment.allowPaste])
+  }, [content, isLongForm, assignment.allowPaste])
 
   // ── 항목별(문장/대화문) 입력 업데이트 ─────────────────────────
   const updateItem = (idx: number, value: string) => {
@@ -137,7 +139,7 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit, existi
 
   // ── 최종 제출용 콘텐츠 조립 ────────────────────────────────────
   const buildFinalContent = (): { content: string; submissionItems?: SubmissionItem[] } => {
-    if (contentType === 'freeWriting') return { content }
+    if (isLongForm) return { content }
 
     if (contentType === 'sentence') {
       const submissionItems: SubmissionItem[] = items.map((text, i) => ({ index: i, text: text.trim() }))
@@ -273,25 +275,45 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit, existi
           📝 {assignment.grammar && <strong>[{assignment.grammar}]</strong>} {assignment.description}
         </div>
 
-        {/* ── 자유글 모드 ── */}
-        {contentType === 'freeWriting' && (
+        {/* ── 자유글 & TOPIK 모드 ── */}
+        {isLongForm && (
           <>
+            {(contentType === 'topik53' || contentType === 'topik54') && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 mb-3 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-black text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full mr-2">
+                    {contentType === 'topik53' ? 'TOPIK II 53번' : 'TOPIK II 54번'}
+                  </span>
+                  <span className="text-xs font-bold text-amber-800">
+                    권장 분량: {assignment.minChars}~{assignment.maxChars}자
+                  </span>
+                  <p className="text-[11px] text-amber-600 mt-1">
+                    {contentType === 'topik53'
+                      ? '도표와 통계 자료를 바탕으로 원인과 전망을 객관적인 서술체(~다/는다)로 작성하세요.'
+                      : '도입-전개-마무리 구성을 갖추어 자신의 견해를 논리적인 격식체(~다/는다)로 작성하세요.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="mb-2">
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-bold text-gray-400">내용 작성</label>
-                <HandwritingOcrButton
-                  onTextExtracted={text => {
-                    setContent(prev => {
-                      if (!prev.trim()) return text
-                      return prev + '\n' + text
-                    })
-                    showToast('📷 손글씨를 텍스트로 입력했어요!')
-                  }}
-                />
+                {appUser?.ocrEnabled !== false && (
+                  <HandwritingOcrButton
+                    onTextExtracted={text => {
+                      setContent(prev => {
+                        if (!prev.trim()) return text
+                        return prev + '\n' + text
+                      })
+                      showToast('📷 손글씨를 텍스트로 입력했어요!')
+                    }}
+                  />
+                )}
               </div>
               <textarea
                 ref={textareaRef}
-                className="w-full min-h-[200px] border-2 border-gray-200 rounded-2xl p-4 text-sm font-['Noto_Sans_KR'] resize-y outline-none focus:border-indigo-500 transition-colors leading-relaxed"
+                className="w-full min-h-[220px] border-2 border-gray-200 rounded-2xl p-4 text-sm font-['Noto_Sans_KR'] resize-y outline-none focus:border-indigo-500 transition-colors leading-relaxed"
                 placeholder={assignment.allowPaste
                   ? '내용을 작성해주세요. (붙여넣기 허용 — 기록됨)'
                   : '내용을 직접 입력해주세요. (붙여넣기 금지)'}
@@ -301,7 +323,7 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit, existi
                 onCut={handleCut}
               />
               <div className={`text-right text-xs mt-1 font-bold ${charColor}`}>
-                {content.length}자 / 최소 {assignment.minChars}자
+                {content.length}자 / {assignment.minChars}~{assignment.maxChars}자
               </div>
             </div>
 

@@ -1,4 +1,4 @@
-﻿// types/assignment.ts
+// types/assignment.ts
 export type SubmissionStatus =
   | 'submitted'
   | 'ai_processing'
@@ -8,7 +8,7 @@ export type SubmissionStatus =
   | 'read'
 
 // ── 과제 콘텐츠 유형 ──────────────────────────────────────────────
-export type AssignmentContentType = 'freeWriting' | 'sentence' | 'dialogue'
+export type AssignmentContentType = 'freeWriting' | 'sentence' | 'dialogue' | 'topik53' | 'topik54'
 
 export interface Assignment {
   id:          string

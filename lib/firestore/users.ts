@@ -61,6 +61,32 @@ export async function updateResearchParticipant(uid: string, enabled: boolean) {
   await updateDoc(doc(db, 'users', uid), { researchParticipant: enabled })
 }
 
+// ── 관리자 권한 제어 (토픽 쓰기 & 사진인식) ──────────────────────
+export async function updateTopikEnabled(uid: string, enabled: boolean) {
+  await updateDoc(doc(db, 'users', uid), { topikEnabled: enabled })
+}
+
+export async function updateOcrEnabled(uid: string, enabled: boolean) {
+  await updateDoc(doc(db, 'users', uid), { ocrEnabled: enabled })
+}
+
+// 특정 반 소속 학생 전체 일괄 권한 설정
+export async function updateClassPermissions(
+  classId: string,
+  field: 'topikEnabled' | 'ocrEnabled' | 'freeWritingEnabled',
+  enabled: boolean
+) {
+  const q = query(
+    collection(db, 'users'),
+    where('classId', '==', classId),
+    where('role', '==', 'student')
+  )
+  const snap = await getDocs(q)
+  await Promise.all(
+    snap.docs.map(d => updateDoc(doc(db, 'users', d.id), { [field]: enabled }))
+  )
+}
+
 export async function getAllUsers(): Promise<AppUser[]> {
   const snap = await getDocs(collection(db, 'users'))
   return snap.docs.map(d => ({ ...d.data(), createdAt: d.data().createdAt?.toDate?.() ?? new Date() }) as AppUser)

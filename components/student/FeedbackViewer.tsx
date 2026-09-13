@@ -27,6 +27,26 @@ export default function FeedbackViewer({ feedback, submissionContent, onClose, i
           {submissionContent}
         </div>
 
+        {/* TOPIK 예상 점수 및 모범 답안 */}
+        {feedback.aiFeedback.topikScore && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-bold text-amber-800">🏆 TOPIK 예상 점수 및 총평</span>
+              <span className="text-sm font-black text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full">
+                {feedback.aiFeedback.topikScore}
+              </span>
+            </div>
+            {feedback.aiFeedback.topikModelEssay && (
+              <div className="mt-3 pt-3 border-t border-amber-200">
+                <div className="text-xs font-bold text-amber-700 mb-1">📖 TOPIK 고득점 모범 답안</div>
+                <div className="bg-white/80 rounded-xl p-3 text-xs leading-relaxed text-gray-800 font-['Noto_Sans_KR'] whitespace-pre-wrap">
+                  {feedback.aiFeedback.topikModelEssay}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 선생님 피드백 (AI 관여는 작은 배지로만 표시) */}
         <div className="bg-indigo-50 rounded-2xl p-5 mb-4">
           <div className="flex items-center justify-between mb-4">
