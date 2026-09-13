@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react'
 
 interface Props {
-  onTextExtracted: (text: string) => void
+  onTextExtracted: (text: string, imageBase64?: string) => void
   disabled?: boolean
   className?: string
 }
@@ -51,7 +51,7 @@ export default function HandwritingOcrButton({ onTextExtracted, disabled = false
             return
           }
 
-          onTextExtracted(data.text)
+          onTextExtracted(data.text, imageBase64)
         } catch (err: unknown) {
           console.error(err)
           alert((err as Error)?.message || '사진을 판독하는 중 오류가 발생했습니다.')

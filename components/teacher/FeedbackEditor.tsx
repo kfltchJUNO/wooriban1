@@ -6,6 +6,8 @@ import { approveFeedback } from '@/lib/firestore/feedback'
 import { updateSubmissionStatus, updateFreeWritingStatus } from '@/lib/firestore/submissions'
 import { doc, updateDoc } from 'firebase/firestore'
 import { db } from '@/firebase/firebaseConfig'
+import TextDiffViewer from '@/components/common/TextDiffViewer'
+import ManuscriptGrid from '@/components/common/ManuscriptGrid'
 
 interface Props {
   student: { nameKr: string }
@@ -46,6 +48,7 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
   const [manualMode, setManualMode] = useState(false)
   const [manualDraft, setManualDraft] = useState({ positive: '', grammar: '', vocabulary: '', structure: '' })
   const [showPasteLog, setShowPasteLog] = useState(false)
+  const [contentTab, setContentTab] = useState<'text' | 'image' | 'manuscript'>('text')
 
   const errorTags: ErrorTag[] = feedback?.aiFeedback?.errorTags ?? []
   const needsAudit = feedback?.needsAudit ?? false
@@ -202,60 +205,87 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
             className={`w-full mb-4 flex items-center justify-center gap-1.5 text-xs font-bold py-2 rounded-xl border-2 transition-colors ${
               showCompare ? 'border-indigo-400 bg-indigo-50 text-indigo-600' : 'border-gray-200 text-gray-500 hover:border-indigo-200'
             }`}>
-            {showCompare ? '비교 닫기 ▲' : '📊 이전 제출과 비교하기 ▼'}
+            {showCompare ? '비교 닫기 ▲' : '📊 이전 제출과 비교하기 (Diff & 개선점) ▼'}
           </button>
         )}
 
         {showCompare && previousAttempt && (
-          <div className="mb-5 border-2 border-indigo-100 rounded-2xl p-4 space-y-3 bg-indigo-50/30">
-            <p className="text-xs font-bold text-indigo-500">
-              {previousAttempt.submission.attemptNumber ?? 1}차 제출 내용
-            </p>
-            <div className="bg-white rounded-xl p-3 text-xs leading-relaxed text-gray-600 max-h-[100px] overflow-y-auto">
-              {previousAttempt.submission.content}
-            </div>
+          <div className="mb-5 space-y-3">
+            {/* 텍스트 Diff 시각화 */}
+            <TextDiffViewer
+              oldText={previousAttempt.submission.content}
+              newText={submission.content}
+              oldLabel={`${previousAttempt.submission.attemptNumber ?? 1}차 제출`}
+              newLabel={`${submission.attemptNumber ?? 2}차 제출`}
+            />
 
-            {previousAttempt.feedback && previousAttempt.feedback.aiFeedback.errorTags && previousAttempt.feedback.aiFeedback.errorTags.length > 0 ? (
-              <div>
-                <p className="text-xs font-bold text-gray-400 mb-1.5">이전 지적 사항</p>
+            {previousAttempt.feedback && previousAttempt.feedback.aiFeedback.errorTags && previousAttempt.feedback.aiFeedback.errorTags.length > 0 && (
+              <div className="border border-indigo-100 rounded-xl p-3 bg-indigo-50/40">
+                <p className="text-xs font-bold text-gray-500 mb-1.5">이전 오류 개선 여부</p>
                 <div className="space-y-1.5">
                   {previousAttempt.feedback.aiFeedback.errorTags.map((tag, i) => {
-                    // 이번 제출에서 같은 카테고리 오류가 또 있는지 확인 → 개선 여부 판단
                     const stillPresent = errorTags.some(t => t.category === tag.category)
                     return (
                       <div key={i} className={`flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg ${
                         stillPresent ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
                       }`}>
-                        <span>{stillPresent ? '⚠️' : '✅'}</span>
+                        <span>{stillPresent ? '⚠️' : '🎉'}</span>
                         <span className="flex-1">{tag.category}: {tag.original} → {tag.correction}</span>
                         <span className="text-[10px] font-bold flex-shrink-0">
-                          {stillPresent ? '반복됨' : '개선됨'}
+                          {stillPresent ? '재발생' : '해결됨!'}
                         </span>
                       </div>
                     )
                   })}
                 </div>
               </div>
-            ) : (
-              <p className="text-xs text-gray-400">이전 제출에는 지적된 오류가 없었어요.</p>
             )}
           </div>
         )}
 
-        <div className="flex gap-2 mb-4 flex-wrap text-xs text-gray-400 items-center">
-          <span className="bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full font-bold">검토 대기</span>
-          <span>글자 수: {submission.charCount}자</span>
-          {submission.pasteAttempts > 0 && (
-            <button onClick={() => setShowPasteLog(v => !v)}
-              className="text-red-400 underline underline-offset-2">
-              붙여넣기 시도: {submission.pasteAttempts}회 {showPasteLog ? '숨기기' : '보기'}
+        <div className="flex gap-2 mb-3 flex-wrap text-xs text-gray-400 items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full font-bold">검토 대기</span>
+            <span>글자 수: {submission.charCount}자</span>
+            {submission.pasteAttempts > 0 && (
+              <button onClick={() => setShowPasteLog(v => !v)}
+                className="text-red-400 underline underline-offset-2">
+                붙여넣기 시도: {submission.pasteAttempts}회 {showPasteLog ? '숨기기' : '보기'}
+              </button>
+            )}
+            {needsAudit && (
+              <span className="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full font-bold">
+                🔍 AI 태깅 검수 요청
+              </span>
+            )}
+          </div>
+
+          {/* 학생 제출물 뷰 모드 탭 */}
+          <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200 text-[11px] font-semibold">
+            <button
+              type="button"
+              onClick={() => setContentTab('text')}
+              className={`px-2 py-0.5 rounded transition-all ${contentTab === 'text' ? 'bg-white text-indigo-700 font-bold shadow-xs' : 'text-gray-500'}`}
+            >
+              텍스트
             </button>
-          )}
-          {needsAudit && (
-            <span className="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full font-bold">
-              🔍 AI 태깅 검수 요청
-            </span>
-          )}
+            {submission.handwritingImageUrl && (
+              <button
+                type="button"
+                onClick={() => setContentTab('image')}
+                className={`px-2 py-0.5 rounded transition-all ${contentTab === 'image' ? 'bg-blue-600 text-white font-bold shadow-xs' : 'text-blue-600'}`}
+              >
+                📷 손글씨 사진
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setContentTab('manuscript')}
+              className={`px-2 py-0.5 rounded transition-all ${contentTab === 'manuscript' ? 'bg-[#8C4A2F] text-white font-bold shadow-xs' : 'text-[#8C4A2F]'}`}
+            >
+              📜 원고지
+            </button>
+          </div>
         </div>
 
         {/* 작성 시간 정보 */}
@@ -282,8 +312,38 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
           <PasteLogViewer submissionId={submission.id} />
         )}
 
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm leading-relaxed mb-5 max-h-[150px] overflow-y-auto">
-          {submission.content}
+        {/* ── 학생 제출물 뷰 영역 ── */}
+        <div className="mb-5">
+          {contentTab === 'text' && (
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm leading-relaxed max-h-[160px] overflow-y-auto whitespace-pre-wrap font-['Noto_Sans_KR']">
+              {submission.content}
+            </div>
+          )}
+
+          {contentTab === 'image' && submission.handwritingImageUrl && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+              <div>
+                <span className="text-[11px] font-bold text-gray-400 block mb-1">📷 학생 손글씨 원본 사진</span>
+                <div className="max-h-[220px] overflow-auto border border-gray-200 rounded-lg bg-black/5 flex items-center justify-center">
+                  <img
+                    src={submission.handwritingImageUrl}
+                    alt="학생 손글씨 사진 원본"
+                    className="max-h-[200px] w-auto object-contain rounded"
+                  />
+                </div>
+              </div>
+              <div>
+                <span className="text-[11px] font-bold text-gray-400 block mb-1">📝 AI 판독 텍스트</span>
+                <div className="bg-white p-3 border border-gray-200 rounded-lg text-xs leading-relaxed max-h-[200px] overflow-y-auto whitespace-pre-wrap">
+                  {submission.content}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {contentTab === 'manuscript' && (
+            <ManuscriptGrid text={submission.content} className="max-h-[240px] overflow-y-auto" />
+          )}
         </div>
 
         {feedback ? (

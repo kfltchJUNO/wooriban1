@@ -1,6 +1,8 @@
 'use client'
+import { useState } from 'react'
 import { Feedback } from '@/types/feedback'
 import { markFeedbackRead } from '@/lib/firestore/feedback'
+import ManuscriptGrid from '@/components/common/ManuscriptGrid'
 
 interface Props {
   feedback: Feedback
@@ -10,6 +12,8 @@ interface Props {
 }
 
 export default function FeedbackViewer({ feedback, submissionContent, onClose, isFreeWriting }: Props) {
+  const [showManuscript, setShowManuscript] = useState(false)
+
   const handleClose = async () => {
     await markFeedbackRead(feedback.submissionId, isFreeWriting ? 'freeWritings' : 'submissions')
     onClose()
@@ -18,14 +22,32 @@ export default function FeedbackViewer({ feedback, submissionContent, onClose, i
   return (
     <div className="fixed inset-0 bg-[rgba(30,27,75,0.45)] backdrop-blur-sm z-50 flex items-center justify-center p-5">
       <div className="bg-white rounded-3xl p-8 w-full max-w-[560px] max-h-[90vh] overflow-y-auto shadow-2xl">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <h2 className="font-bold text-lg">💌 피드백이 도착했어요!</h2>
           <button onClick={handleClose} className="text-gray-400 text-2xl leading-none">✕</button>
         </div>
 
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm leading-relaxed text-gray-700 mb-5 max-h-[150px] overflow-y-auto">
-          {submissionContent}
+        {/* 원고지 뷰 토글 버튼 */}
+        <div className="flex items-center justify-between mb-2 text-xs">
+          <span className="font-bold text-gray-500">내 작성 글</span>
+          <button
+            onClick={() => setShowManuscript(v => !v)}
+            className="text-[11px] font-bold text-[#8C4A2F] bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1"
+          >
+            <span>📜</span>
+            <span>{showManuscript ? '일반 글로 보기' : '원고지 규격으로 보기'}</span>
+          </button>
         </div>
+
+        {showManuscript ? (
+          <div className="mb-5 max-h-[200px] overflow-y-auto">
+            <ManuscriptGrid text={submissionContent} />
+          </div>
+        ) : (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm leading-relaxed text-gray-700 mb-5 max-h-[150px] overflow-y-auto whitespace-pre-wrap font-['Noto_Sans_KR']">
+            {submissionContent}
+          </div>
+        )}
 
         {/* TOPIK 예상 점수 및 모범 답안 */}
         {feedback.aiFeedback.topikScore && (

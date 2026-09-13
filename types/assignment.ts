@@ -77,6 +77,9 @@ export interface Submission {
   startedAt?:       Date    // 작성 화면을 처음 연 시각
   activeDurationMs?: number // 화면이 보이는(포커스된) 상태로 누적된 시간(ms)
   totalDurationMs?:  number // 시작~제출까지 전체 경과 시간(ms, 자리 비운 시간 포함)
+
+  // ── 손글씨 사진 원본 URL (있는 경우) ────────────────────────
+  handwritingImageUrl?: string // OCR 추출 시 사용된 원본 사진 데이터 URL 또는 스토리지 URL
 }
 
 // 붙여넣기 로그는 별도 컬렉션으로 분리 (1MB 문서 제한 방지)

@@ -6,6 +6,7 @@ import { Assignment, LogEntry, SubmissionItem } from '@/types/assignment'
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/firebaseConfig'
 import HandwritingOcrButton from '@/components/common/HandwritingOcrButton'
+import ManuscriptGrid from '@/components/common/ManuscriptGrid'
 
 interface Props {
   assignment: Assignment
@@ -22,6 +23,10 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit, existi
 
   // 자유글 모드
   const [content,    setContent]      = useState('')
+  // 손글씨 사진 원본 URL (있는 경우)
+  const [handwritingImageUrl, setHandwritingImageUrl] = useState<string | null>(null)
+  // 뷰 모드 (일반 에디터 vs 원고지 격자 뷰어)
+  const [viewMode, setViewMode] = useState<'editor' | 'manuscript'>('editor')
   // 문장/대화문 모드 — 항목별 입력
   const speakers  = assignment.speakers && assignment.speakers.length >= 2
     ? assignment.speakers
@@ -210,6 +215,7 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit, existi
         startedAt:         new Date(startedAtRef.current),
         activeDurationMs:  activeMs,
         totalDurationMs:   totalMs,
+        ...(handwritingImageUrl ? { handwritingImageUrl } : {}),
       })
 
       if (assignment.allowPaste && logsRef.current.length > 0) {
@@ -297,34 +303,78 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit, existi
             )}
 
             <div className="mb-2">
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-gray-400">내용 작성</label>
+              <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs font-bold text-gray-400">내용 작성</label>
+                  {/* 원고지 뷰어 토글 버튼 */}
+                  <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200 text-[11px] font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('editor')}
+                      className={`px-2 py-0.5 rounded transition-all ${
+                        viewMode === 'editor' ? 'bg-white text-indigo-700 shadow-xs font-bold' : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      ✏️ 일반 입력
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('manuscript')}
+                      className={`px-2 py-0.5 rounded transition-all ${
+                        viewMode === 'manuscript' ? 'bg-[#8C4A2F] text-white shadow-xs font-bold' : 'text-[#8C4A2F] hover:text-amber-900'
+                      }`}
+                    >
+                      📜 원고지 미리보기
+                    </button>
+                  </div>
+                </div>
+
                 {appUser?.ocrEnabled !== false && (
                   <HandwritingOcrButton
-                    onTextExtracted={text => {
+                    onTextExtracted={(text, imgBase64) => {
                       setContent(prev => {
                         if (!prev.trim()) return text
                         return prev + '\n' + text
                       })
+                      if (imgBase64) setHandwritingImageUrl(imgBase64)
                       showToast('📷 손글씨를 텍스트로 입력했어요!')
                     }}
                   />
                 )}
               </div>
-              <textarea
-                ref={textareaRef}
-                className="w-full min-h-[220px] border-2 border-gray-200 rounded-2xl p-4 text-sm font-['Noto_Sans_KR'] resize-y outline-none focus:border-indigo-500 transition-colors leading-relaxed"
-                placeholder={assignment.allowPaste
-                  ? '내용을 작성해주세요. (붙여넣기 허용 — 기록됨)'
-                  : '내용을 직접 입력해주세요. (붙여넣기 금지)'}
-                value={content}
-                onChange={e => setContent(e.target.value)}
-                onPaste={handlePaste}
-                onCut={handleCut}
-              />
-              <div className={`text-right text-xs mt-1 font-bold ${charColor}`}>
-                {content.length}자 / {assignment.minChars}~{assignment.maxChars}자
-              </div>
+
+              {viewMode === 'editor' ? (
+                <>
+                  <textarea
+                    ref={textareaRef}
+                    className="w-full min-h-[220px] border-2 border-gray-200 rounded-2xl p-4 text-sm font-['Noto_Sans_KR'] resize-y outline-none focus:border-indigo-500 transition-colors leading-relaxed"
+                    placeholder={assignment.allowPaste
+                      ? '내용을 작성해주세요. (붙여넣기 허용 — 기록됨)'
+                      : '내용을 직접 입력해주세요. (붙여넣기 금지)'}
+                    value={content}
+                    onChange={e => setContent(e.target.value)}
+                    onPaste={handlePaste}
+                    onCut={handleCut}
+                  />
+                  <div className={`text-right text-xs mt-1 font-bold ${charColor}`}>
+                    {content.length}자 / {assignment.minChars}~{assignment.maxChars}자
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <ManuscriptGrid text={content} maxChars={assignment.maxChars} />
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400">💡 내용 수정은 '일반 입력' 탭에서 할 수 있어요.</span>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('editor')}
+                      className="text-indigo-600 font-bold hover:underline"
+                    >
+                      수정하러 가기 →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {assignment.allowPaste ? (
