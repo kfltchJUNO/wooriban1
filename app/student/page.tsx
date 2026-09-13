@@ -11,6 +11,7 @@ import QuizPlayer from '@/components/student/QuizPlayer'
 import ResearchFormBanner from '@/components/student/ResearchFormBanner'
 import ResearchArgumentEditor from '@/components/student/ResearchArgumentEditor'
 import ResearchFeedbackThread from '@/components/student/ResearchFeedbackThread'
+import HandwritingOcrButton from '@/components/common/HandwritingOcrButton'
 import { getActiveResearchAssignments, getMyResearchSubmissions, getResearchThread, getResubmitUnlockTime } from '@/lib/firestore/research'
 import { ResearchAssignment, ResearchSubmission, ResearchThread } from '@/types/research'
 import { useAuth } from '@/lib/auth/authContext'
@@ -407,7 +408,18 @@ export default function StudentPage() {
                     placeholder="예: 나의 하루 일과" value={freeTopic} onChange={e => setFreeTopic(e.target.value)}/>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-gray-400 mb-1.5 block">내용</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-gray-400">내용</label>
+                    <HandwritingOcrButton
+                      onTextExtracted={text => {
+                        setFreeContent(prev => {
+                          if (!prev.trim()) return text
+                          return prev + '\n' + text
+                        })
+                        showToast('📷 손글씨를 텍스트로 입력했어요!')
+                      }}
+                    />
+                  </div>
                   <textarea
                     className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm min-h-[160px] resize-none outline-none focus:border-indigo-500 font-['Noto_Sans_KR'] leading-relaxed"
                     placeholder="자유롭게 써 보세요. 제출하면 곧 AI 피드백을 받을 수 있어요."

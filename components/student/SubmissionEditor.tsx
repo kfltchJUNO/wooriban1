@@ -5,6 +5,7 @@ import { submitAssignment } from '@/lib/firestore/submissions'
 import { Assignment, LogEntry, SubmissionItem } from '@/types/assignment'
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/firebase/firebaseConfig'
+import HandwritingOcrButton from '@/components/common/HandwritingOcrButton'
 
 interface Props {
   assignment: Assignment
@@ -276,7 +277,18 @@ export default function SubmissionEditor({ assignment, onClose, onSubmit, existi
         {contentType === 'freeWriting' && (
           <>
             <div className="mb-2">
-              <label className="text-xs font-bold text-gray-400 mb-1.5 block">내용 작성</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-gray-400">내용 작성</label>
+                <HandwritingOcrButton
+                  onTextExtracted={text => {
+                    setContent(prev => {
+                      if (!prev.trim()) return text
+                      return prev + '\n' + text
+                    })
+                    showToast('📷 손글씨를 텍스트로 입력했어요!')
+                  }}
+                />
+              </div>
               <textarea
                 ref={textareaRef}
                 className="w-full min-h-[200px] border-2 border-gray-200 rounded-2xl p-4 text-sm font-['Noto_Sans_KR'] resize-y outline-none focus:border-indigo-500 transition-colors leading-relaxed"
