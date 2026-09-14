@@ -22,6 +22,7 @@ import { AppUser } from '@/types/user'
 import { Submission, FreeWriting, Assignment } from '@/types/assignment'
 import { Feedback } from '@/types/feedback'
 import { formatSchool, formatSemester, formatClass } from '@/lib/utils/classUtils'
+import WeeklyVulnerabilityReport from '@/components/teacher/WeeklyVulnerabilityReport'
 
 type Panel = 'main' | 'quizzes' | 'roster'
 
@@ -173,8 +174,19 @@ export default function TeacherPage() {
           </div>
 
           {panel === 'main' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <StudentList
+            <>
+              {appUser && (
+                <WeeklyVulnerabilityReport
+                  classId={appUser.classId}
+                  students={students}
+                  assignments={assignments}
+                  submissions={submissions}
+                  onOpenDetailedAnalysis={() => setShowErrorPattern(true)}
+                  onOpenQuizGenWithTopic={() => setShowQuizGen(true)}
+                />
+              )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <StudentList
                 students={students}
                 assignments={assignments}
                 submissions={submissions}
@@ -186,6 +198,7 @@ export default function TeacherPage() {
               />
               <BoardFeed />
             </div>
+            </>
           )}
 
           {panel === 'quizzes' && (
