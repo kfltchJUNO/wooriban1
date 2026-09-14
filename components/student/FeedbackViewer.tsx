@@ -13,6 +13,7 @@ interface Props {
 
 export default function FeedbackViewer({ feedback, submissionContent, onClose, isFreeWriting }: Props) {
   const [showManuscript, setShowManuscript] = useState(false)
+  const [savedTags, setSavedTags] = useState<Record<number, boolean>>({})
 
   const handleClose = async () => {
     await markFeedbackRead(feedback.submissionId, isFreeWriting ? 'freeWritings' : 'submissions')
@@ -91,6 +92,60 @@ export default function FeedbackViewer({ feedback, submissionContent, onClose, i
             </div>
           ))}
         </div>
+
+        {/* ── 오답 및 맞춤 표현 (단어장 저장 연동) ── */}
+        {feedback.aiFeedback.errorTags && feedback.aiFeedback.errorTags.length > 0 && (
+          <div className="bg-purple-50/60 border border-purple-100 rounded-2xl p-5 mb-4 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
+                <span>🏷️</span> 맞춤 교정 표현 (내 단어장에 저장해보세요)
+              </h3>
+              <span className="text-[11px] text-purple-600 font-semibold">{feedback.aiFeedback.errorTags.length}개 발견</span>
+            </div>
+            <div className="space-y-2">
+              {feedback.aiFeedback.errorTags.map((tag, idx) => (
+                <div key={idx} className="bg-white p-3 rounded-xl border border-purple-100 flex items-start justify-between gap-2 shadow-2xs">
+                  <div className="text-xs space-y-0.5 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded text-[10px]">{tag.category}</span>
+                    </div>
+                    <p className="text-red-500 line-through font-mono text-[11px]">{tag.original}</p>
+                    <p className="text-green-700 font-bold font-mono text-[12px]">➔ {tag.correction}</p>
+                    {tag.explanation && <p className="text-[11px] text-gray-500 mt-0.5">{tag.explanation}</p>}
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const { addVaultItem } = await import('@/lib/firestore/vault')
+                        await addVaultItem({
+                          studentUid: feedback.studentUid,
+                          classId: feedback.classId,
+                          type: 'error_correction',
+                          original: tag.original,
+                          correction: tag.correction,
+                          explanation: tag.explanation,
+                          category: tag.category,
+                          sourceSubmissionId: feedback.submissionId,
+                        })
+                        setSavedTags(prev => ({ ...prev, [idx]: true }))
+                      } catch (e) {
+                        alert('단어장에 저장하지 못했어요.')
+                      }
+                    }}
+                    disabled={savedTags[idx]}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors flex-shrink-0 ${
+                      savedTags[idx]
+                        ? 'bg-purple-100 text-purple-700 cursor-default'
+                        : 'bg-purple-600 hover:bg-purple-700 text-white'
+                    }`}
+                  >
+                    {savedTags[idx] ? '★ 저장됨' : '+ 단어장'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 선생님 코멘트 */}
         {feedback.teacherComment && (

@@ -23,8 +23,10 @@ import { Assignment, Submission, FreeWriting } from '@/types/assignment'
 import { Feedback } from '@/types/feedback'
 import { Quiz, QuizAttempt } from '@/types/quiz'
 import { formatDate } from '@/lib/utils/classUtils'
+import VocabularyVault from '@/components/student/VocabularyVault'
+import StudentAnalyticsView from '@/components/student/StudentAnalyticsView'
 
-type Tab = 'main' | 'quiz'
+type Tab = 'main' | 'quiz' | 'vault' | 'analytics'
 
 export default function StudentPage() {
   const { appUser } = useAuth()
@@ -213,13 +215,15 @@ export default function StudentPage() {
           </div>
 
           {/* 탭 */}
-          <div className="flex gap-1 bg-indigo-100 p-1 rounded-xl mb-5">
+          <div className="flex gap-1 bg-indigo-100 p-1 rounded-xl mb-5 overflow-x-auto">
             {([
               { key: 'main', label: '📚 홈' },
               { key: 'quiz', label: `🎯 퀴즈${newQuizCount > 0 ? ` (${newQuizCount})` : ''}` },
+              { key: 'vault', label: '📖 단어장' },
+              { key: 'analytics', label: '📊 성장 리포트' },
             ] as { key: Tab; label: string }[]).map(({ key, label }) => (
               <button key={key} onClick={() => setActiveTab(key)}
-                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all
+                className={`flex-1 py-2 px-3 text-xs sm:text-sm font-bold rounded-lg transition-all whitespace-nowrap
                   ${activeTab === key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                 {label}
               </button>
@@ -390,6 +394,20 @@ export default function StudentPage() {
                 )
               })}
             </div>
+          )}
+
+          {/* ── 단어장 탭 ── */}
+          {activeTab === 'vault' && appUser && (
+            <VocabularyVault studentUid={appUser.uid} />
+          )}
+
+          {/* ── 작문 성장 리포트 탭 ── */}
+          {activeTab === 'analytics' && appUser && (
+            <StudentAnalyticsView
+              submissions={submissions}
+              freeWritings={myFreeWritings}
+              studentName={appUser.nameKr}
+            />
           )}
         </main>
 
