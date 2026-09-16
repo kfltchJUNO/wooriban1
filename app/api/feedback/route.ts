@@ -124,8 +124,10 @@ TOPIK 공식 채점 기준 4요소를 엄격히 적용하여 평가해줘:
 - "topikModelEssay": 학생의 글과 주제를 바탕으로 TOPIK 고득점을 받을 수 있는 완벽한 모범 답안 전문 (53번은 200~300자 내외, 54번은 600~700자 내외의 격식체 줄글)
 ` : ''
 
+  const isTopik = contentType === 'topik53' || contentType === 'topik54'
+
   return `
-너는 한국어 작문 전문 교사이자 TOPIK II 공식 채점 위원이야.
+너는 한국어 작문 교육 전문 교사야.
 학습자 수준: ${level}
 과제 내용: ${assignment}
 ${grammar ? `타깃 문법: ${grammar}` : ''}
@@ -146,14 +148,19 @@ ${content}
    오류가 없으면 빈 배열로.
    오류가 여러 개면 최대 5개까지, 가장 명확한 것부터 우선 태깅.
 
+${isTopik ? `[TOPIK 전용 필수 항목]
+- topikScore: 예상 점수(예: ${contentType === 'topik53' ? '25/30점' : '42/50점'})와 핵심 채점 요약 (50자 이내)
+- topikModelEssay: 주제에 맞는 완벽한 TOPIK 고득점 모범 답안 전문` : `[일반 과제 전용 권장 항목]
+- betterExpression: "이렇게 쓰면 더 좋아요" - 학생의 글 전체를 대체하는 거창한 모범답안 대신, 가장 어색한 핵심 1~2문장을 한국어 원어민이 자연스럽게 쓸 법한 세련된 표현으로 다듬은 추천 문장 (100자 이내)`}
+
 아래 JSON 형식으로만 응답해:
 {
   "grammar": "문법 오류와 수정 제안 (없으면 '전반적으로 문법 오류가 없어요')",
   "vocabulary": "더 자연스러운 어휘 제안 (80자 이내)",
   "structure": "단락 구성과 흐름 평가 (80자 이내)",
   "positive": "잘한 점 - 반드시 구체적으로 1개 이상 (80자 이내)",
-  "topikScore": "${contentType === 'topik53' ? '25/30점 (도표 내용 반영 우수)' : contentType === 'topik54' ? '42/50점 (논리적 전개 양호)' : ''}",
-  "topikModelEssay": "${contentType === 'topik53' || contentType === 'topik54' ? 'TOPIK 고득점 모범 답안 전문' : ''}",
+  ${isTopik ? `"topikScore": "${contentType === 'topik53' ? '25/30점 (도표 내용 반영 우수)' : '42/50점 (논리적 전개 양호)'}",
+  "topikModelEssay": "TOPIK 고득점 모범 답안 전문",` : `"betterExpression": "이렇게 쓰면 더 자연스러워요: '...'",`}
   "errorTags": [
     {
       "category": "조사 오류",
@@ -269,6 +276,7 @@ export async function POST(req: NextRequest) {
       errorTags?: ErrorTag[]
       topikScore?: string
       topikModelEssay?: string
+      betterExpression?: string
     }
     const errorTags = Array.isArray(parsed.errorTags) ? parsed.errorTags.slice(0, 5) : []
 
@@ -293,6 +301,7 @@ export async function POST(req: NextRequest) {
     }
     if (parsed.topikScore) aiFeedbackData.topikScore = parsed.topikScore
     if (parsed.topikModelEssay) aiFeedbackData.topikModelEssay = parsed.topikModelEssay
+    if (parsed.betterExpression) aiFeedbackData.betterExpression = parsed.betterExpression
 
     await adminDb.collection('feedback').doc(submissionId).set({
       submissionId,

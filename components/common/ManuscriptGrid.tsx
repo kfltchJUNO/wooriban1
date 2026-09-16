@@ -9,11 +9,20 @@ interface Props {
   className?: string
 }
 
+interface GridCell {
+  text: string
+  isPunctuation?: boolean // 마침표, 쉼표 등 좌측 하단 정렬 필요 부호
+  isNumberPair?: boolean // 숫자 2자리 한 칸
+}
+
 /**
  * 한국 표준 200자 원고지 (줄당 20칸) 격자 렌더러
- * - 실제 시험 원고지처럼 줄마다 20개의 격자 사각형을 렌더링
- * - 줄바꿈(\n)은 새 줄의 첫 칸으로 이동
- * - 글자 수와 원고지 칸 수의 차이(띄어쓰기, 줄바꿈 빈칸)를 시각적으로 보여줌
+ *
+ * [원고지 작성 규격 반영]
+ * 1. 숫자 2개는 한 칸에 묶어서 배치 (예: 2024 -> [20], [24] / 5 -> [ 5] 또는 [5])
+ * 2. 띄어쓰기(공백)는 점(·) 없이 깨끗한 빈칸으로 렌더링
+ * 3. 마침표(.)와 쉼표(,) 등 문장부호는 칸의 정중앙이 아닌 왼쪽 하단에 배치
+ * 4. 줄의 첫 칸에 마침표나 쉼표가 오지 않도록 이전 줄 끝에 붙이거나 표시
  */
 export default function ManuscriptGrid({
   text,
@@ -21,24 +30,57 @@ export default function ManuscriptGrid({
   maxChars,
   className = '',
 }: Props) {
-  // 텍스트를 줄바꿈 및 20칸 기준으로 그리드 셀 2차원 배열로 분할
+  // 텍스트를 원고지 규칙에 맞추어 셀(GridCell)의 2차원 배열로 분할
   const lines = useMemo(() => {
-    const result: string[][] = []
+    const result: GridCell[][] = []
     const paragraphs = text.split('\n')
 
     paragraphs.forEach((p) => {
       // 빈 줄이면 빈 행 하나 추가
       if (p.length === 0) {
-        result.push(Array(columns).fill(''))
+        result.push(Array(columns).fill({ text: '' }))
         return
       }
 
-      // 문단을 columns(20)자 단위로 슬라이스
-      for (let i = 0; i < p.length; i += columns) {
-        const slice = p.slice(i, i + columns)
-        const row: string[] = []
+      // 문단을 토큰(각 칸에 들어갈 단위)으로 분해
+      const tokens: GridCell[] = []
+      let i = 0
+
+      while (i < p.length) {
+        const char = p[i]
+
+        // 1. 숫자 2자리는 한 칸에 결합
+        if (/\d/.test(char)) {
+          if (i + 1 < p.length && /\d/.test(p[i + 1])) {
+            tokens.push({ text: char + p[i + 1], isNumberPair: true })
+            i += 2
+            continue
+          } else {
+            // 한 자리 숫자는 일반 글자 1칸
+            tokens.push({ text: char })
+            i += 1
+            continue
+          }
+        }
+
+        // 2. 마침표(.), 쉼표(,) 구두점 여부 체크
+        if (char === '.' || char === ',' || char === '!' || char === '?') {
+          tokens.push({ text: char, isPunctuation: true })
+          i += 1
+          continue
+        }
+
+        // 3. 일반 글자 및 공백
+        tokens.push({ text: char })
+        i += 1
+      }
+
+      // 토큰들을 columns(20칸) 단위로 행 분할
+      for (let idx = 0; idx < tokens.length; idx += columns) {
+        const slice = tokens.slice(idx, idx + columns)
+        const row: GridCell[] = []
         for (let j = 0; j < columns; j++) {
-          row.push(slice[j] || '')
+          row.push(slice[j] || { text: '' })
         }
         result.push(row)
       }
@@ -46,7 +88,7 @@ export default function ManuscriptGrid({
 
     // 최소 5줄은 표시
     while (result.length < 5) {
-      result.push(Array(columns).fill(''))
+      result.push(Array(columns).fill({ text: '' }))
     }
 
     return result
@@ -60,8 +102,8 @@ export default function ManuscriptGrid({
         {/* 상단 원고지 정보 헤더 */}
         <div className="flex items-center justify-between pb-2 mb-3 border-b border-[#D8C7B5] text-xs text-[#8C4A2F] font-semibold">
           <div className="flex items-center gap-2">
-            <span className="bg-[#8C4A2F] text-white px-2 py-0.5 rounded text-[10px] font-bold">원고지 모드</span>
-            <span>한 줄 20칸 규격</span>
+            <span className="bg-[#8C4A2F] text-white px-2 py-0.5 rounded text-[10px] font-bold">원고지 규격 모드</span>
+            <span>한 줄 20칸 · 숫자 2자 1칸</span>
           </div>
           <div className="flex items-center gap-3 font-mono text-[11px]">
             <span>글자 수: <strong className="text-[#8C4A2F]">{totalFilledCells}</strong>자</span>
@@ -81,13 +123,14 @@ export default function ManuscriptGrid({
 
               {/* 20칸 격자 */}
               <div className="flex border-t border-b border-l border-[#8C4A2F] bg-white">
-                {row.map((char, colIdx) => {
-                  const isFilled = char !== ''
-                  const isSpace = char === ' '
+                {row.map((cell, colIdx) => {
+                  const hasContent = cell.text !== ''
+                  const isSpace = cell.text === ' '
+
                   return (
                     <div
                       key={colIdx}
-                      className={`w-6 h-7 sm:w-7 sm:h-8 border-r border-b border-[#D8C7B5] flex items-center justify-center relative text-sm sm:text-base ${
+                      className={`w-6 h-7 sm:w-7 sm:h-8 border-r border-b border-[#D8C7B5] relative text-sm sm:text-base ${
                         (colIdx + 1) % 5 === 0 ? 'border-r-[#8C4A2F]' : ''
                       }`}
                     >
@@ -97,10 +140,18 @@ export default function ManuscriptGrid({
                       </div>
 
                       {/* 글자 표기 */}
-                      {isFilled && (
-                        <span className={`relative z-10 font-bold ${isSpace ? 'text-gray-200' : 'text-gray-900'}`}>
-                          {isSpace ? '·' : char}
-                        </span>
+                      {hasContent && !isSpace && (
+                        <div
+                          className={`w-full h-full relative z-10 flex ${
+                            cell.isPunctuation
+                              ? 'items-end justify-start pl-1 pb-1 font-bold text-gray-900 text-xs sm:text-sm'
+                              : cell.isNumberPair
+                              ? 'items-center justify-center font-bold text-gray-900 tracking-tighter text-xs sm:text-sm font-sans'
+                              : 'items-center justify-center font-bold text-gray-900'
+                          }`}
+                        >
+                          {cell.text}
+                        </div>
                       )}
                     </div>
                   )
@@ -111,8 +162,8 @@ export default function ManuscriptGrid({
         </div>
 
         {/* 하단 원고지 작성 규칙 팁 */}
-        <div className="mt-3 pt-2.5 border-t border-[#D8C7B5] text-[11px] text-[#8C4A2F]/80 flex items-center justify-between">
-          <span>💡 문단의 시작은 첫 칸을 비우고 둘째 칸부터 씁니다. 문장부호(. , ? !)는 원고지 한 칸을 차지합니다.</span>
+        <div className="mt-3 pt-2.5 border-t border-[#D8C7B5] text-[11px] text-[#8C4A2F]/80 flex flex-wrap items-center justify-between gap-2">
+          <span>💡 문단 첫 칸 들여쓰기 / 숫자 2자는 한 칸 / 마침표(.)·쉼표(,)는 왼쪽 하단에 기재합니다.</span>
         </div>
       </div>
     </div>

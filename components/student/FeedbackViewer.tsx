@@ -13,7 +13,7 @@ interface Props {
 
 export default function FeedbackViewer({ feedback, submissionContent, onClose, isFreeWriting }: Props) {
   const [showManuscript, setShowManuscript] = useState(false)
-  const [savedTags, setSavedTags] = useState<Record<number, boolean>>({})
+  const [savedTags, setSavedTags] = useState<Record<string, boolean>>({})
 
   const handleClose = async () => {
     await markFeedbackRead(feedback.submissionId, isFreeWriting ? 'freeWritings' : 'submissions')
@@ -51,7 +51,7 @@ export default function FeedbackViewer({ feedback, submissionContent, onClose, i
         )}
 
         {/* TOPIK 예상 점수 및 모범 답안 */}
-        {feedback.aiFeedback.topikScore && (
+        {feedback.aiFeedback.topikScore ? (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-bold text-amber-800">🏆 TOPIK 예상 점수 및 총평</span>
@@ -68,7 +68,17 @@ export default function FeedbackViewer({ feedback, submissionContent, onClose, i
               </div>
             )}
           </div>
-        )}
+        ) : feedback.aiFeedback.betterExpression ? (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-4">
+            <div className="flex items-center gap-1.5 mb-1.5 text-xs font-bold text-emerald-800">
+              <span>💡</span>
+              <span>이렇게 쓰면 더 좋아요</span>
+            </div>
+            <div className="bg-white/90 rounded-xl p-3 text-xs leading-relaxed text-emerald-950 font-['Noto_Sans_KR'] whitespace-pre-wrap">
+              {feedback.aiFeedback.betterExpression}
+            </div>
+          </div>
+        ) : null}
 
         {/* 선생님 피드백 (AI 관여는 작은 배지로만 표시) */}
         <div className="bg-indigo-50 rounded-2xl p-5 mb-4">
@@ -113,34 +123,68 @@ export default function FeedbackViewer({ feedback, submissionContent, onClose, i
                     <p className="text-green-700 font-bold font-mono text-[12px]">➔ {tag.correction}</p>
                     {tag.explanation && <p className="text-[11px] text-gray-500 mt-0.5">{tag.explanation}</p>}
                   </div>
-                  <button
-                    onClick={async () => {
-                      try {
-                        const { addVaultItem } = await import('@/lib/firestore/vault')
-                        await addVaultItem({
-                          studentUid: feedback.studentUid,
-                          classId: feedback.classId,
-                          type: 'error_correction',
-                          original: tag.original,
-                          correction: tag.correction,
-                          explanation: tag.explanation,
-                          category: tag.category,
-                          sourceSubmissionId: feedback.submissionId,
-                        })
-                        setSavedTags(prev => ({ ...prev, [idx]: true }))
-                      } catch (e) {
-                        alert('단어장에 저장하지 못했어요.')
-                      }
-                    }}
-                    disabled={savedTags[idx]}
-                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors flex-shrink-0 ${
-                      savedTags[idx]
-                        ? 'bg-purple-100 text-purple-700 cursor-default'
-                        : 'bg-purple-600 hover:bg-purple-700 text-white'
-                    }`}
-                  >
-                    {savedTags[idx] ? '★ 저장됨' : '+ 단어장'}
-                  </button>
+                  <div className="flex flex-col sm:flex-row gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={async () => {
+                        try {
+                          const { addVaultItem } = await import('@/lib/firestore/vault')
+                          await addVaultItem({
+                            studentUid: feedback.studentUid,
+                            classId: feedback.classId,
+                            type: 'vocabulary',
+                            original: tag.original,
+                            correction: tag.correction,
+                            explanation: tag.explanation,
+                            category: tag.category,
+                            sourceSubmissionId: feedback.submissionId,
+                          })
+                          setSavedTags(prev => ({ ...prev, [`${idx}_vocab`]: true }))
+                        } catch (e) {
+                          alert('단어장에 저장하지 못했어요.')
+                        }
+                      }}
+                      disabled={savedTags[`${idx}_vocab`]}
+                      className={`px-2 py-1 text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1 ${
+                        savedTags[`${idx}_vocab`]
+                          ? 'bg-blue-100 text-blue-700 cursor-default'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white shadow-2xs'
+                      }`}
+                      title="단어/어휘장으로 저장"
+                    >
+                      <span>📚</span>
+                      <span>{savedTags[`${idx}_vocab`] ? '단어 저장됨' : '+ 단어'}</span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const { addVaultItem } = await import('@/lib/firestore/vault')
+                          await addVaultItem({
+                            studentUid: feedback.studentUid,
+                            classId: feedback.classId,
+                            type: 'grammar',
+                            original: tag.original,
+                            correction: tag.correction,
+                            explanation: tag.explanation,
+                            category: tag.category,
+                            sourceSubmissionId: feedback.submissionId,
+                          })
+                          setSavedTags(prev => ({ ...prev, [`${idx}_grammar`]: true }))
+                        } catch (e) {
+                          alert('문법노트에 저장하지 못했어요.')
+                        }
+                      }}
+                      disabled={savedTags[`${idx}_grammar`]}
+                      className={`px-2 py-1 text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1 ${
+                        savedTags[`${idx}_grammar`]
+                          ? 'bg-purple-100 text-purple-700 cursor-default'
+                          : 'bg-purple-600 hover:bg-purple-700 text-white shadow-2xs'
+                      }`}
+                      title="문법노트로 저장"
+                    >
+                      <span>📝</span>
+                      <span>{savedTags[`${idx}_grammar`] ? '문법 저장됨' : '+ 문법'}</span>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

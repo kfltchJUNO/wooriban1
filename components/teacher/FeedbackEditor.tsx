@@ -394,7 +394,7 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
             </div>
 
             {/* TOPIK 예상 점수 및 모범 답안 검토 */}
-            {feedback.aiFeedback.topikScore && (
+            {feedback.aiFeedback.topikScore ? (
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-bold text-amber-800">🏆 TOPIK 예상 점수 및 총평</span>
@@ -411,7 +411,17 @@ export default function FeedbackEditor({ student, submission, feedback, onClose,
                   </div>
                 )}
               </div>
-            )}
+            ) : feedback.aiFeedback.betterExpression ? (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-4">
+                <div className="flex items-center gap-1.5 mb-1.5 text-xs font-bold text-emerald-800">
+                  <span>💡</span>
+                  <span>이렇게 쓰면 더 좋아요 (자연스러운 추천 표현)</span>
+                </div>
+                <div className="bg-white rounded-xl p-3 text-xs leading-relaxed text-emerald-900 border border-emerald-100 whitespace-pre-wrap font-['Noto_Sans_KR']">
+                  {feedback.aiFeedback.betterExpression}
+                </div>
+              </div>
+            ) : null}
 
             {/* 구조화된 오류 태그 목록 */}
             {errorTags.length > 0 && (

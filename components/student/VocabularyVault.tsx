@@ -11,7 +11,8 @@ interface Props {
 export default function VocabularyVault({ studentUid }: Props) {
   const [items, setItems] = useState<VaultItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'unmastered' | 'mastered'>('all')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'vocabulary' | 'grammar'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'unmastered' | 'mastered'>('all')
   const [search, setSearch] = useState('')
   const [quizCardIdx, setQuizCardIdx] = useState<number | null>(null)
   const [showAnswer, setShowAnswer] = useState(false)
@@ -40,8 +41,19 @@ export default function VocabularyVault({ studentUid }: Props) {
   }
 
   const filteredItems = items.filter(it => {
-    if (filter === 'unmastered' && it.mastered) return false
-    if (filter === 'mastered' && !it.mastered) return false
+    // 단어/문법 필터 (기존 error_correction은 category에 따라 분류하거나 둘 다 노출)
+    if (typeFilter === 'vocabulary') {
+      const isVocab = it.type === 'vocabulary' || it.category?.includes('어휘') || it.category?.includes('단어')
+      if (!isVocab) return false
+    } else if (typeFilter === 'grammar') {
+      const isGrammar = it.type === 'grammar' || (it.type !== 'vocabulary' && !it.category?.includes('어휘'))
+      if (!isGrammar) return false
+    }
+
+    // 학습 상태 필터
+    if (statusFilter === 'unmastered' && it.mastered) return false
+    if (statusFilter === 'mastered' && !it.mastered) return false
+
     if (search.trim()) {
       const q = search.toLowerCase()
       const match = it.original.toLowerCase().includes(q) ||
@@ -54,15 +66,17 @@ export default function VocabularyVault({ studentUid }: Props) {
   })
 
   const masteredCount = items.filter(i => i.mastered).length
+  const vocabCount = items.filter(i => i.type === 'vocabulary' || i.category?.includes('어휘') || i.category?.includes('단어')).length
+  const grammarCount = items.filter(i => i.type === 'grammar' || (i.type !== 'vocabulary' && !i.category?.includes('어휘'))).length
 
   return (
     <div className="space-y-4">
       {/* 요약 헤더 카드 */}
-      <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-2xl p-5 shadow-md flex items-center justify-between">
+      <div className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 text-white rounded-2xl p-5 shadow-md flex items-center justify-between">
         <div>
           <span className="text-xs font-semibold bg-white/20 px-2.5 py-0.5 rounded-full">나만의 맞춤 학습장</span>
-          <h2 className="text-lg font-bold mt-1">📖 오답 & 표현 단어장</h2>
-          <p className="text-xs text-purple-100 mt-0.5">내가 틀렸던 문장과 AI 피드백 표현을 복습해보세요.</p>
+          <h2 className="text-lg font-bold mt-1">📖 오답 & 표현 단어장·문법노트</h2>
+          <p className="text-xs text-purple-100 mt-0.5">내가 틀렸던 어휘와 문법을 분리하여 효과적으로 복습해보세요.</p>
         </div>
         <div className="text-right">
           <div className="text-2xl font-black">{items.length}개</div>
@@ -73,46 +87,70 @@ export default function VocabularyVault({ studentUid }: Props) {
       </div>
 
       {/* 필터 및 검색 바 */}
-      <div className="flex items-center justify-between gap-2 flex-wrap bg-white p-3 rounded-2xl border border-gray-100 shadow-xs">
-        <div className="flex gap-1">
+      <div className="space-y-2 bg-white p-3 rounded-2xl border border-gray-100 shadow-xs">
+        {/* 상위 탭: 단어 vs 문법 구분 */}
+        <div className="flex items-center justify-between gap-2 pb-2 border-b border-gray-100 flex-wrap">
+          <div className="flex gap-1">
+            {[
+              ['all', `전체 (${items.length})`],
+              ['vocabulary', `📚 단어장 (${vocabCount})`],
+              ['grammar', `📝 문법노트 (${grammarCount})`],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setTypeFilter(key as any)}
+                className={`text-xs px-3 py-1.5 rounded-xl font-bold transition-all ${
+                  typeFilter === key
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="단어/문법/오류 검색..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="text-xs border border-gray-200 rounded-xl px-3 py-1.5 outline-none focus:border-purple-400 w-36 sm:w-48"
+            />
+            {filteredItems.length > 0 && (
+              <button
+                onClick={() => {
+                  setQuizCardIdx(0)
+                  setShowAnswer(false)
+                }}
+                className="text-xs px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-colors whitespace-nowrap shadow-xs"
+              >
+                ⚡ 플래시카드 복습
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 하위 탭: 암기 여부 상태 */}
+        <div className="flex gap-1 pt-0.5">
           {[
-            ['all', `전체 (${items.length})`],
-            ['unmastered', `학습 중 (${items.length - masteredCount})`],
-            ['mastered', `완료 (${masteredCount})`],
+            ['all', '전체 상태'],
+            ['unmastered', `학습 중 (${filteredItems.filter(i => !i.mastered).length})`],
+            ['mastered', `암기 완료 (${filteredItems.filter(i => i.mastered).length})`],
           ].map(([key, label]) => (
             <button
               key={key}
-              onClick={() => setFilter(key as any)}
-              className={`text-xs px-3 py-1.5 rounded-xl font-bold transition-colors ${
-                filter === key
-                  ? 'bg-purple-100 text-purple-700'
-                  : 'text-gray-500 hover:bg-gray-50'
+              onClick={() => setStatusFilter(key as any)}
+              className={`text-[11px] px-2.5 py-1 rounded-lg font-semibold transition-colors ${
+                statusFilter === key
+                  ? 'bg-purple-100 text-purple-800 font-bold'
+                  : 'text-gray-400 hover:text-gray-600'
               }`}
             >
               {label}
             </button>
           ))}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="단어/오류 검색..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="text-xs border border-gray-200 rounded-xl px-3 py-1.5 outline-none focus:border-purple-400 w-36 sm:w-48"
-          />
-          {items.length > 0 && (
-            <button
-              onClick={() => {
-                setQuizCardIdx(0)
-                setShowAnswer(false)
-              }}
-              className="text-xs px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-colors whitespace-nowrap shadow-xs"
-            >
-              ⚡ 플래시카드 복습
-            </button>
-          )}
         </div>
       </div>
 
@@ -225,9 +263,18 @@ export default function VocabularyVault({ studentUid }: Props) {
                   title="암기 완료 체크"
                 />
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                      it.type === 'vocabulary' || it.category?.includes('어휘') || it.category?.includes('단어')
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-purple-100 text-purple-700'
+                    }`}>
+                      {it.type === 'vocabulary' || it.category?.includes('어휘') || it.category?.includes('단어')
+                        ? '📚 단어'
+                        : '📝 문법'}
+                    </span>
                     {it.category && (
-                      <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full">
+                      <span className="text-[10px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">
                         {it.category}
                       </span>
                     )}

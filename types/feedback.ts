@@ -28,6 +28,7 @@ export interface AIFeedback {
   errorTags?:       ErrorTag[]
   topikScore?:      string // 예: "24/30점" 또는 "42/50점"
   topikModelEssay?: string // TOPIK 고득점 모범 답안 리라이팅
+  betterExpression?: string // 일반 과제용: "이렇게 쓰면 더 좋아요" 자연스러운 추천 문장
   generatedAt:      Date
 }
 

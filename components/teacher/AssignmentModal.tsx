@@ -146,16 +146,39 @@ export default function AssignmentModal({ onClose, onCreated }: Props) {
                 <span>TOPIK 추천 템플릿</span>
               </button>
             </div>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-              {CONTENT_TYPES.map(t => (
-                <button key={t.value} type="button" onClick={() => handleContentTypeChange(t.value)}
-                  className={`p-2 rounded-xl border-2 text-center transition-colors ${
-                    contentType === t.value ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'
-                  }`}>
-                  <p className="text-xs font-bold text-gray-800">{t.label}</p>
-                  <p className="text-[9px] text-gray-400 mt-0.5 leading-tight">{t.desc}</p>
-                </button>
-              ))}
+            <div className="space-y-2">
+              <div>
+                <span className="text-[11px] font-bold text-gray-500 block mb-1">일반 작문 과제 (표현 제안 피드백)</span>
+                <div className="grid grid-cols-3 gap-2">
+                  {CONTENT_TYPES.filter(t => !t.value.startsWith('topik')).map(t => (
+                    <button key={t.value} type="button" onClick={() => handleContentTypeChange(t.value)}
+                      className={`p-2.5 rounded-xl border-2 text-center transition-all ${
+                        contentType === t.value ? 'border-indigo-500 bg-indigo-50 shadow-xs' : 'border-gray-200 hover:border-indigo-200'
+                      }`}>
+                      <p className="text-xs font-bold text-gray-800">{t.label}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{t.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-bold text-amber-700">🏆 TOPIK 쓰기 시험 대비 전용 (공식 채점 및 모범답안)</span>
+                  <span className="text-[10px] text-amber-600 bg-amber-100 px-1.5 py-0.2 rounded font-bold">집중대비</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {CONTENT_TYPES.filter(t => t.value.startsWith('topik')).map(t => (
+                    <button key={t.value} type="button" onClick={() => handleContentTypeChange(t.value)}
+                      className={`p-2.5 rounded-xl border-2 text-center transition-all ${
+                        contentType === t.value ? 'border-amber-500 bg-amber-50/80 shadow-xs' : 'border-amber-200/70 hover:border-amber-300 bg-amber-50/30'
+                      }`}>
+                      <p className="text-xs font-bold text-amber-900">{t.label}</p>
+                      <p className="text-[10px] text-amber-700/80 mt-0.5 leading-tight">{t.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
