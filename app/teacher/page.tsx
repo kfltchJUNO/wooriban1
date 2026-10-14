@@ -23,6 +23,7 @@ import { Submission, FreeWriting, Assignment } from '@/types/assignment'
 import { Feedback } from '@/types/feedback'
 import { formatSchool, formatSemester, formatClass } from '@/lib/utils/classUtils'
 import WeeklyVulnerabilityReport from '@/components/teacher/WeeklyVulnerabilityReport'
+import HanupSyncModal from '@/components/teacher/HanupSyncModal'
 
 type Panel = 'main' | 'quizzes' | 'roster'
 
@@ -57,6 +58,7 @@ export default function TeacherPage() {
   const [showQuizGen,  setShowQuizGen]= useState(false)
   const [showErrorPattern, setShowErrorPattern] = useState(false)
   const [showInviteModal, setShowInviteModal] = useState(false)
+  const [showHanupSync, setShowHanupSync] = useState(false)
   const [panel,        setPanel]      = useState<Panel>('main')
   const [quizRefresh,  setQuizRefresh]= useState(0)
   const [toast,        setToast]      = useState('')
@@ -143,6 +145,10 @@ export default function TeacherPage() {
               </div>
 
               <div className="flex gap-2 flex-wrap">
+                <button onClick={() => setShowHanupSync(true)}
+                  className="bg-sky-500 hover:bg-sky-400 text-white text-sm font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center gap-1.5 border border-sky-300/40">
+                  📘 한업(HanUp) 데이터 연동
+                </button>
                 <button onClick={() => setShowInviteModal(true)}
                   className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold px-4 py-2.5 rounded-xl shadow-sm transition-colors flex items-center gap-1.5">
                   📱 학생 초대 QR
@@ -264,6 +270,23 @@ export default function TeacherPage() {
             classId={appUser.classId}
             teacherUid={appUser.uid}
             onClose={() => setShowInviteModal(false)}
+          />
+        )}
+        {showHanupSync && appUser && (
+          <HanupSyncModal
+            schoolId={appUser.schoolId}
+            semester={appUser.semester}
+            classId={appUser.classId}
+            teacherUid={appUser.uid}
+            students={students}
+            assignments={assignments}
+            submissions={submissions}
+            onClose={() => setShowHanupSync(false)}
+            onImportSuccess={() => {
+              setShowHanupSync(false)
+              loadData()
+              showToast('한업 데이터가 학급에 성공적으로 반영되었어요! 🚀')
+            }}
           />
         )}
 

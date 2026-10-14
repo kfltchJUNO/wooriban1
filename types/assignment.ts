@@ -30,6 +30,16 @@ export interface Assignment {
   contentType: AssignmentContentType   // 기본 'freeWriting' (기존 과제 호환)
   itemCount?:  number                  // 문장/대화문일 때 입력 칸 개수
   speakers?:   string[]                // 대화문일 때 화자 이름 목록 (기본 ["가","나"])
+
+  // 한업(HanUp) 플랫폼 느슨한 결합 연동용 옵셔널 참조 필드 (단독 실행 시 영향 없음)
+  externalRef?: {
+    platform:          'hanup'
+    hanupUserId?:      string
+    hanupClassCode?:   string
+    hanupPromptId?:    string
+    hanupSubmissionId?: string
+    syncedAt?:         Date
+  }
 }
 
 // ── 붙여넣기/편집 로그 항목 ───────────────────────────────────────
@@ -80,6 +90,16 @@ export interface Submission {
 
   // ── 손글씨 사진 원본 URL (있는 경우) ────────────────────────
   handwritingImageUrl?: string // OCR 추출 시 사용된 원본 사진 데이터 URL 또는 스토리지 URL
+
+  // 한업(HanUp) 플랫폼 느슨한 결합 연동용 옵셔널 참조 필드 (단독 실행 시 영향 없음)
+  externalRef?: {
+    platform:          'hanup'
+    hanupUserId?:      string
+    hanupClassCode?:   string
+    hanupPromptId?:    string
+    hanupSubmissionId?: string
+    syncedAt?:         Date
+  }
 }
 
 // 붙여넣기 로그는 별도 컬렉션으로 분리 (1MB 문서 제한 방지)

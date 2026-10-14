@@ -43,4 +43,14 @@ export interface AppUser {
   // 관리자가 반/학생 단위로 지정하는 권한 플래그
   topikEnabled?: boolean // 토픽 쓰기 참여 권한 (기본 false)
   ocrEnabled?:   boolean // 손글씨 사진인식(OCR) 사용 권한 (기본 true)
+
+  // 한업(HanUp) 플랫폼 느슨한 결합 연동용 옵셔널 참조 필드 (단독 실행 시 영향 없음)
+  externalRef?: {
+    platform:          'hanup'
+    hanupUserId?:      string
+    hanupClassCode?:   string
+    hanupPromptId?:    string
+    hanupSubmissionId?: string
+    syncedAt?:         Date
+  }
 }
